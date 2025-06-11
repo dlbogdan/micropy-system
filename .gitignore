@@ -1,0 +1,16 @@
+.env
+.vscode
+.micropico
+# Ignore build outputs
+release/
+*.tar.zlib
+*.json
+
+# Python
+__pycache__/
+*.pyc
+*.code-workspace
+build/
+version.txt
+certs/
+/certs/
