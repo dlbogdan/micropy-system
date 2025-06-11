@@ -1,90 +1,135 @@
-# MicroPython Water Heater Controller Interface
+# MicroPython Firmware System Manager
 
-A lightweight web interface for controlling and configuring a water heater controller running on MicroPython.
+A robust framework for managing MicroPython-based IoT devices with automatic over-the-air (OTA) firmware updates, WiFi connectivity management, and system monitoring capabilities.
+
+## Overview
+
+This project provides a complete system management solution for MicroPython-enabled microcontrollers (particularly optimized for Raspberry Pi Pico W). It handles:
+
+- **OTA Firmware Updates**: Automatic updates from GitHub releases or a direct server
+- **WiFi Management**: Non-blocking WiFi connection and monitoring
+- **System Monitoring**: Memory usage, task management, and diagnostics
+- **Configuration Management**: Central configuration system for all components
 
 ## Features
 
-- Control water heater temperature and operation
-- Configure WiFi settings
-- Adjust system parameters (PID controller, MQTT, etc.)
-- Responsive design works on mobile and desktop browsers
+### Firmware Updates
 
-## Hardware Requirements
+- **Multiple Update Sources**: Support for GitHub releases or direct server URLs
+- **Progress Tracking**: Callback system to monitor update progress
+- **Secure Updates**: HTTPS connections with optional GitHub token authentication
+- **Fault Tolerance**: Backup and recovery mechanisms for interrupted updates
+- **Version Control**: Semantic versioning-based update checks
 
-- MicroPython-compatible microcontroller (e.g., Raspberry Pi Pico W, ESP32, ESP8266)
-- Minimum 2MB flash storage recommended
-- WiFi connectivity
+### Network Management
 
-## Installation
+- **Non-blocking WiFi**: Asynchronous connection handling that doesn't interfere with other operations
+- **Connection Monitoring**: Automatic reconnection and status reporting
+- **Configurable**: Easy hostname and credential configuration
 
-1. Copy the following files to your MicroPython device:
-   - `main.py` - The main application code
-   - `index.html` - The web interface
-   - Optional: `config.json` - Default configuration (will be created automatically if not present)
+### System Management
 
-2. Reset your device to start the application
+- **Task Management**: Background task scheduling and monitoring
+- **Resource Monitoring**: Memory usage tracking and reporting
+- **Singleton Pattern**: Efficient resource usage through singleton design
+- **Diagnostic Reports**: Comprehensive system status reporting
 
-## Usage
+## Project Structure
 
-### Initial Setup
+- **boot.py**: Handles system initialization and firmware update checks on boot
+- **main.py**: Main application loop and system component initialization
+- **lib/coresys/**: Core system modules
+  - **manager_firmware.py**: OTA firmware update functionality
+  - **manager_system.py**: System coordination and monitoring
+  - **manager_wifi.py**: WiFi connection management
+  - **manager_config.py**: Configuration management
+  - **manager_tasks.py**: Background task scheduling
+  - **logger.py**: Logging utilities
 
-When first powered on, the device will:
-1. Try to connect to WiFi using stored credentials
-2. If connection fails, create an access point named "HeaterController" with password "password"
-3. Connect to this access point to configure your WiFi settings
+## Configuration
 
-### Accessing the Interface
+The system is configured through a JSON file (`/system-config.json`) with the following key sections:
 
-Once connected to your network, access the web interface by navigating to the device's IP address in a browser:
-- `http://[device-ip]/` (e.g., `http://192.168.1.105/`)
+```json
+{
+  "DEVICE": {
+    "NAME": "micropython-device",
+    "MODEL": "generic"
+  },
+  "WIFI": {
+    "SSID": "your-wifi-ssid",
+    "PASS": "your-wifi-password"
+  },
+  "FIRMWARE": {
+    "GITHUB_REPO": "username/repo",
+    "GITHUB_TOKEN": "",
+    "DIRECT_BASE_URL": "https://your-update-server.com/firmware/",
+    "UPDATE_ON_BOOT": true,
+    "CHUNK_SIZE": 2048,
+    "MAX_REDIRECTS": 10,
+    "CORE_SYSTEM_FILES": [],
+    "MAX_FAILURE_ATTEMPTS": 3,
+    "NETWORK_TIMEOUT_MS": 60000
+  }
+}
+```
 
-### Interface Tabs
+## Getting Started
 
-1. **Control Tab**
-   - View current and target temperatures
-   - Adjust target temperature
-   - Toggle heating and DHW (Domestic Hot Water)
-   - Monitor system status
+### Prerequisites
 
-2. **WiFi Tab**
-   - Configure WiFi connection settings
-   - Set device hostname
-   - View connection status
+- MicroPython-compatible device (tested on Raspberry Pi Pico W)
+- MicroPython firmware installed (Python 3.x compatible)
+- Network connectivity (WiFi)
 
-3. **Configuration Tab**
-   - Adjust all system parameters
-   - PID controller settings
-   - MQTT configuration
-   - Firmware update settings
-   - And more...
+### Installation
 
-## Configuration Parameters
+1. Clone this repository
+2. Copy all files to your MicroPython device
+3. Create or modify the `/system-config.json` file with your configuration
+4. Reset the device to start the system
 
-The configuration is stored in JSON format and includes the following sections:
+### Update Server Options
 
-- **HARDWARE** - Hardware pin assignments and I/O configuration
-- **WIFI** - Network connection settings
-- **DEVICE** - Device identification and model
-- **FIRMWARE** - Update settings and GitHub repository information
-- **OT** (OpenTherm) - Heating control parameters
-- **AUTOH** - Automatic heating control settings
-- **PID** - PID controller tuning parameters
-- **MQTT** - Message broker configuration
+#### GitHub Releases
 
-## Customization
+Set the `GITHUB_REPO` in your configuration to use GitHub releases for updates. Your releases should include:
 
-You can modify the HTML and JavaScript to add additional features or adjust the user interface without needing to modify the Python backend in many cases.
+- A zipped firmware bundle
+- Version information following semantic versioning (e.g., "1.2.3")
 
-## Troubleshooting
+#### Direct Server
 
-- If the device doesn't appear on your network, check that WiFi credentials are correct
-- If the web interface doesn't load, try resetting the device
-- For persistent issues, connect to the device using a serial connection and check for error messages
+Set the `DIRECT_BASE_URL` to point to a server hosting firmware updates. The server should provide:
 
-## Security Considerations
+- A `metadata.json` file with version information
+- Firmware bundles in the expected format
 
-This is a basic implementation with minimal security. For production use, consider:
-- Implementing authentication for the web interface
-- Using HTTPS instead of HTTP (requires additional libraries)
-- Encrypting stored passwords
-- Adding rate limiting for failed connection attempts 
+## Development
+
+### Testing Updates Locally
+
+The project includes `firmware_server.py` for local testing:
+
+```
+python firmware_server.py
+```
+
+This starts a local HTTPS server serving firmware updates for testing.
+
+### Creating Firmware Bundles
+
+Firmware updates should be packaged as TAR archives with ZLIB compression, containing all files to be updated.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License.
+
+## Acknowledgements
+
+- MicroPython project for providing the foundation
+- Asyncio library for MicroPython enabling non-blocking operations
