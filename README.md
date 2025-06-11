@@ -67,7 +67,15 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
     "UPDATE_ON_BOOT": true,
     "CHUNK_SIZE": 2048,
     "MAX_REDIRECTS": 10,
-    "CORE_SYSTEM_FILES": [],
+    "CORE_SYSTEM_FILES": [
+            "boot.py",
+            "lib/coresys/manager_firmware.mpy",
+            "lib/coresys/manager_system.mpy",
+            "lib/coresys/manager_wifi.mpy",
+            "lib/coresys/manager_config.mpy",
+            "lib/coresys/logger.mpy",
+            "lib/coresys/manager_tasks.mpy"
+    ],
     "MAX_FAILURE_ATTEMPTS": 3,
     "NETWORK_TIMEOUT_MS": 60000
   }
