@@ -1,7 +1,11 @@
 .env
 .vscode
 .micropico
+.venv/
+.stubs/
+.micropython-stubs
 # Ignore build outputs
+.idea/
 release/
 *.tar.zlib
 *.json
@@ -14,3 +18,4 @@ build/
 version.txt
 certs/
 /certs/
+hardware-baseline.json

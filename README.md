@@ -84,6 +84,16 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
 
 ## Getting Started
 
+### Supported Runtime and Hardware Baseline
+
+The current toolchain targets MicroPython 1.29.0 on both Pico W (RP2040) and
+Pico 2 W (RP2350), with separate board-specific IntelliSense profiles and a
+matching pinned `mpy-cross` release. Before enabling OTA installation on a
+board, provision MicroPython 1.29.0 and capture its runtime, MPY ABI, filesystem
+capacity, heap baseline, and LittleFS rename behavior by following
+[HARDWARE_BASELINE.md](HARDWARE_BASELINE.md). Do not assume that CPython or a
+desktop filesystem has the same rename semantics as the Pico.
+
 ### Prerequisites
 
 - MicroPython-compatible device (tested on Raspberry Pi Pico W)
