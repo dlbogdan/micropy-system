@@ -307,8 +307,8 @@ Use a small schema such as:
 - [x] Roll back on uncaught candidate startup exception.
 - [x] Evaluate `machine.WDT` behavior on the exact MicroPython build.
 - [x] If watchdog is enabled, ensure the normal app has a centralized feed owner.
-- [ ] Roll back an unconfirmed candidate after watchdog reset.
-- [ ] Avoid treating intentional user resets after confirmation as failures.
+- [x] Roll back an unconfirmed candidate after watchdog reset.
+- [x] Avoid treating intentional user resets after confirmation as failures.
 - [x] Quarantine a failed candidate version while allowing a newer release.
 
 #### Acceptance criteria
