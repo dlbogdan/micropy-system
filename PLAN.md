@@ -303,13 +303,13 @@ Use a small schema such as:
 
 #### 3.6 Rollback and watchdog
 
-- [ ] Start with one candidate boot attempt before rollback.
-- [ ] Roll back on uncaught candidate startup exception.
+- [x] Start with one candidate boot attempt before rollback.
+- [x] Roll back on uncaught candidate startup exception.
 - [ ] Evaluate `machine.WDT` behavior on the exact MicroPython build.
 - [ ] If watchdog is enabled, ensure the normal app has a centralized feed owner.
 - [ ] Roll back an unconfirmed candidate after watchdog reset.
 - [ ] Avoid treating intentional user resets after confirmation as failures.
-- [ ] Quarantine a failed candidate version while allowing a newer release.
+- [x] Quarantine a failed candidate version while allowing a newer release.
 
 #### Acceptance criteria
 
