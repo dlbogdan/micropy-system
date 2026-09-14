@@ -188,15 +188,15 @@ This is transitional and will be retired after A/B slots are proven.
 - [x] Make `prepare_release.py` call the shared builder or remove it.
 - [x] Provide output adapters for local direct-server files and GitHub release assets.
 - [x] Create output directories explicitly and fail with a concise diagnostic.
-- [ ] Stream TAR compression on the desktop instead of loading both TAR and compressed image fully into memory.
+- [x] Stream TAR compression on the desktop instead of loading both TAR and compressed image fully into memory.
 
 #### 2.2 Pin `.mpy` compatibility
 
 - [ ] Pin/document the exact `mpy-cross` version matching the supported MicroPython firmware.
 - [ ] Record the MicroPython/MPY ABI in release metadata.
 - [ ] Reject an incompatible release before installation.
-- [ ] Provide a build option that packages `.py` instead of `.mpy` for debugging compatibility issues.
-- [ ] Never package both `.py` and `.mpy` for the same module unless precedence is intentional and tested.
+- [x] Provide a build option that packages `.py` instead of `.mpy` for debugging compatibility issues.
+- [x] Never package both `.py` and `.mpy` for the same module unless precedence is intentional and tested.
 
 #### 2.3 Make the TAR contract strict
 

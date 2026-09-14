@@ -5,6 +5,7 @@ import socket
 import tarfile
 import tempfile
 import unittest
+import zlib
 
 import local_builder
 import prepare_release
@@ -62,8 +63,10 @@ class BuildVersionTests(unittest.TestCase):
 
     def test_github_adapter_writes_sidecar_without_direct_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / 'firmware.tar.zlib'
+            artifact.write_bytes(b'archive')
             metadata = local_builder.create_metadata(
-                b'archive', 'v1.2.3', 'owner/repo', 8000,
+                str(artifact), 'v1.2.3', 'owner/repo', 8000,
                 'pico-w-rp2040', 'pico-w-rp2040-firmware.tar.zlib',
                 directory, 'github-assets')
             self.assertIsNone(metadata)
@@ -73,14 +76,46 @@ class BuildVersionTests(unittest.TestCase):
 
     def test_direct_server_adapter_returns_github_shaped_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
+            artifact = Path(directory) / 'firmware.tar.zlib'
+            artifact.write_bytes(b'archive')
             metadata = local_builder.create_metadata(
-                b'archive', 'v1.2.3', 'owner/repo', 8000,
+                str(artifact), 'v1.2.3', 'owner/repo', 8000,
                 'pico-w-rp2040', 'pico-w-rp2040-firmware.tar.zlib',
                 directory, 'direct-server')
             self.assertEqual(metadata['tag_name'], 'v1.2.3')
             self.assertEqual(metadata['assets'][0]['model'], 'pico-w-rp2040')
             self.assertTrue(metadata['url'].startswith('http://'))
             self.assertIn(':8000/', metadata['assets'][0]['browser_download_url'])
+
+    def test_stream_compression_round_trips(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'source.tar'
+            output = Path(directory) / 'firmware.tar.zlib'
+            payload = b'abc123' * 50000
+            source.write_bytes(payload)
+            size = local_builder.compress_zlib(str(source), str(output), chunk_size=127)
+            self.assertEqual(size, output.stat().st_size)
+            self.assertEqual(zlib.decompress(output.read_bytes()), payload)
+
+    def test_py_module_format_copies_sources_without_mpy_twin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'source'
+            prepared = Path(directory) / 'prepared'
+            (source / 'lib').mkdir(parents=True)
+            prepared.mkdir()
+            (source / 'boot.py').write_text('print("boot")')
+            (source / 'lib' / 'module.py').write_text('VALUE = 1')
+            local_builder.prepare_modules(str(source), str(prepared), 'py')
+            self.assertTrue((prepared / 'lib' / 'module.py').is_file())
+            self.assertFalse((prepared / 'lib' / 'module.mpy').exists())
+
+    def test_duplicate_py_and_mpy_module_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            prepared = Path(directory)
+            (prepared / 'module.py').write_text('VALUE = 1')
+            (prepared / 'module.mpy').write_bytes(b'M')
+            with self.assertRaisesRegex(ValueError, 'both'):
+                local_builder.validate_module_uniqueness(directory)
 
     def test_server_requires_metadata_and_archive(self):
         with tempfile.TemporaryDirectory() as directory:

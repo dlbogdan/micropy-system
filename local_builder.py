@@ -33,31 +33,35 @@ def ensure_directory(directory):
         os.makedirs(directory)
         print(f"Created directory: {directory}")
 
-def compile_to_mpy(source_dir, temp_dir):
-    """Compile all .py files to .mpy using mpy-cross."""
-    print(f"Compiling Python files to .mpy in temporary directory: {temp_dir}")
+def prepare_modules(source_dir, temp_dir, module_format='mpy'):
+    """Prepare non-launcher modules in exactly one selected representation."""
+    print(f"Preparing {module_format} modules in temporary directory: {temp_dir}")
     
     # Compile files in src directory
     for root, _, files in os.walk(source_dir):
         for file in files:
-            if file.endswith(".py") and (not file == "main.py" and not file == "boot.py"):
+            if file.endswith(".py") and file not in ("main.py", "boot.py"):
                 py_path = os.path.join(root, file)
                 # Create relative path structure in temp directory
                 rel_path = os.path.relpath(root, source_dir)
                 temp_subdir = os.path.join(temp_dir, rel_path)
                 os.makedirs(temp_subdir, exist_ok=True)
                 
-                # Compile to .mpy
-                mpy_path = os.path.join(temp_subdir, file[:-3] + '.mpy')
-                try:
-                    subprocess.run(['mpy-cross', py_path, '-o', mpy_path], check=True)
-                    print(f"Compiled {py_path} to {mpy_path}")
-                except subprocess.CalledProcessError as e:
-                    print(f"Error compiling {py_path}: {e}")
-                    raise
-                except FileNotFoundError:
-                    print("Error: mpy-cross not found. Make sure it's installed and in your PATH.")
-                    raise
+                if module_format == 'py':
+                    destination = os.path.join(temp_subdir, file)
+                    shutil.copy2(py_path, destination)
+                    print(f"Copied {py_path} to {destination}")
+                else:
+                    destination = os.path.join(temp_subdir, file[:-3] + '.mpy')
+                    try:
+                        subprocess.run(['mpy-cross', py_path, '-o', destination], check=True)
+                        print(f"Compiled {py_path} to {destination}")
+                    except subprocess.CalledProcessError as e:
+                        print(f"Error compiling {py_path}: {e}")
+                        raise
+                    except FileNotFoundError:
+                        print("Error: mpy-cross not found. Make sure it's installed and in your PATH.")
+                        raise
 
 def calculate_file_sha256(file_path):
     """Calculate SHA256 hash for a file."""
@@ -82,7 +86,7 @@ def create_hash_file(source_dir, temp_dir, hash_file_path):
     # Add hashes for generated build metadata and all compiled .mpy files.
     for root, _, files in os.walk(temp_dir):
         for file in files:
-            if file.endswith(".mpy") or file == FRAMEWORK_BUILD_FILENAME:
+            if file.endswith((".mpy", ".py")) or file == FRAMEWORK_BUILD_FILENAME:
                 full_path = os.path.join(root, file)
                 arcname = os.path.relpath(full_path, start=temp_dir)
                 # Convert Windows backslashes to forward slashes for web compatibility
@@ -98,10 +102,25 @@ def create_hash_file(source_dir, temp_dir, hash_file_path):
     print(f"Created JSON hash file at {hash_file_path}")
     return hash_file_path
 
+def validate_module_uniqueness(temp_dir):
+    """Reject ambiguous module precedence in the prepared artifact tree."""
+    modules = {}
+    for root, _, files in os.walk(temp_dir):
+        for filename in files:
+            if not filename.endswith((".py", ".mpy")):
+                continue
+            path = os.path.relpath(os.path.join(root, filename), temp_dir)
+            stem = os.path.splitext(path)[0]
+            previous = modules.get(stem)
+            if previous:
+                raise ValueError(f"module is packaged as both {previous} and {path}")
+            modules[stem] = path
+
 def create_tar_archive(source_dir, tar_path, temp_dir):
     """Create tar archive from compiled .mpy files and root py files."""
     print(f"Creating TAR archive: {tar_path}")
     
+    validate_module_uniqueness(temp_dir)
     # First create the hash file in the temp directory
     hash_file_path = os.path.join(temp_dir, HASH_FILENAME)
     create_hash_file(source_dir, temp_dir, hash_file_path)
@@ -125,22 +144,25 @@ def create_tar_archive(source_dir, tar_path, temp_dir):
         # Then add all compiled .mpy files
         for root, _, files in os.walk(temp_dir):
             for file in files:
-                if file.endswith(".mpy"):
+                if file.endswith((".mpy", ".py")):
                     full_path = os.path.join(root, file)
                     # Convert path to be relative to source_dir
                     arcname = os.path.relpath(full_path, start=temp_dir)
                     tar.add(full_path, arcname=arcname)
                     print(f"Added {arcname} to archive")
 
-def compress_zlib(tar_path, output_path):
-    """Compress the tar file using zlib."""
+def compress_zlib(tar_path, output_path, chunk_size=64 * 1024):
+    """Stream TAR compression without retaining TAR or image in memory."""
     print(f"Compressing TAR to ZLIB: {output_path}")
-    with open(tar_path, 'rb') as f_in:
-        data = f_in.read()
-        compressed = zlib.compress(data)
-    with open(output_path, 'wb') as f_out:
-        f_out.write(compressed)
-    return compressed
+    compressor = zlib.compressobj()
+    with open(tar_path, 'rb') as source, open(output_path, 'wb') as output:
+        while True:
+            chunk = source.read(chunk_size)
+            if not chunk:
+                break
+            output.write(compressor.compress(chunk))
+        output.write(compressor.flush())
+    return os.path.getsize(output_path)
 
 def calculate_sha256(data):
     """Calculate SHA256 hash of binary data."""
@@ -203,11 +225,12 @@ def write_framework_build(temp_dir, build_string=None, build_date=None):
         build_file.write(build_string + ' built ' + build_date + '\n')
     return build_path
 
-def create_metadata(compressed_data, version, repo_name, server_port,
+def create_metadata(compressed_path, version, repo_name, server_port,
                     device_model, firmware_filename, build_dir,
                     output_mode='direct-server'):
     """Create GitHub-like metadata JSON file."""
-    sha256 = calculate_sha256(compressed_data)
+    sha256 = calculate_file_sha256(compressed_path)
+    compressed_size = os.path.getsize(compressed_path)
     timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     local_ip = get_local_ip()
     
@@ -243,7 +266,7 @@ def create_metadata(compressed_data, version, repo_name, server_port,
                 "label": "",
                 "content_type": "application/octet-stream",
                 "state": "uploaded",
-                "size": len(compressed_data),
+                "size": compressed_size,
                 "sha256": sha256,
                 "model": device_model,
                 "runtime_version": "1.29.0",
@@ -268,7 +291,7 @@ def create_metadata(compressed_data, version, repo_name, server_port,
     }
     
     image_info["model"] = device_model
-    image_info["size"] = len(compressed_data)
+    image_info["size"] = compressed_size
     image_info["runtime_version"] = "1.29.0"
     image_info["mpy_version"] = 6
     image_info["asset"] = firmware_filename
@@ -311,6 +334,10 @@ def main(argv=None):
         default='direct-server',
         help='Write direct-server metadata or GitHub-uploadable asset files',
     )
+    parser.add_argument(
+        '--module-format', choices=['mpy', 'py'], default='mpy',
+        help='Package compiled .mpy modules or debuggable .py sources',
+    )
     
     args = parser.parse_args(argv)
     source_dir = os.path.abspath(args.source_dir)
@@ -333,19 +360,19 @@ def main(argv=None):
         framework_build = get_framework_build()
         framework_build_date = get_build_date()
         write_framework_build(temp_dir, framework_build, framework_build_date)
-        # Step 1: Compile Python files to .mpy
-        compile_to_mpy(source_dir, temp_dir)
+        # Step 1: Prepare modules in the selected, non-ambiguous format.
+        prepare_modules(source_dir, temp_dir, args.module_format)
         
         # Step 2: Create temporary tar archive
         temp_tar = os.path.join(output_dir, 'temp_firmware.tar')
         create_tar_archive(source_dir, temp_tar, temp_dir)
         
         # Step 3: Compress the tar file
-        compressed_data = compress_zlib(temp_tar, output_image)
+        compressed_size = compress_zlib(temp_tar, output_image)
         
         # Step 4: Create GitHub-like metadata.json
         metadata = create_metadata(
-            compressed_data, version, args.repo, args.port, args.model,
+            output_image, version, args.repo, args.port, args.model,
             firmware_filename, output_dir, args.output_mode)
         
         # Direct-server transport consumes GitHub-shaped metadata.json.
@@ -368,7 +395,7 @@ def main(argv=None):
         print(f"Version: {version}")
         print(f"Framework build: {framework_build} built {framework_build_date}")
         print(f"Local IP: {get_local_ip()}")
-        print(f"Size: {len(compressed_data)} bytes")
+        print(f"Size: {compressed_size} bytes")
 
 if __name__ == "__main__":
     main()

@@ -178,6 +178,9 @@ The default `--output-mode direct-server` writes the compressed artifact,
 GitHub-shaped `metadata.json`, and `image-info.json`. Use
 `--output-mode github-assets` for a GitHub release artifact plus its compact
 `image-info.json` sidecar; GitHub itself supplies the API release response.
+Use `--module-format py` to package debuggable source modules instead of the
+default compiled `.mpy` modules. The builder rejects ambiguous prepared trees
+that contain both representations of the same module.
 
 Application repositories can invoke the same builder through a pinned Git
 submodule and package an assembled device tree without copying the builder:
