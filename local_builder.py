@@ -211,18 +211,15 @@ def create_metadata(compressed_data, version, repo_name, server_port,
     timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
     local_ip = get_local_ip()
     
-    # Fixed server port to match the HTTPS server (8443)
-    https_port = 8443
-    
     # Format version properly (ensure it has v prefix)
     if version and not version.startswith('v'):
         version = f"v{version}"
     
     metadata_github_format = {
-        "url": f"https://{local_ip}:{https_port}/metadata.json",
-        "assets_url": f"https://{local_ip}:{https_port}/",
-        "upload_url": f"https://{local_ip}:{https_port}/",
-        "html_url": f"https://{local_ip}:{https_port}/",
+        "url": f"http://{local_ip}:{server_port}/metadata.json",
+        "assets_url": f"http://{local_ip}:{server_port}/",
+        "upload_url": f"http://{local_ip}:{server_port}/",
+        "html_url": f"http://{local_ip}:{server_port}/",
         "id": int(datetime.now().timestamp()),
         "author": {
             "login": "local-builder",
@@ -239,7 +236,7 @@ def create_metadata(compressed_data, version, repo_name, server_port,
         "published_at": timestamp,
         "assets": [
             {
-                "url": f"https://{local_ip}:{https_port}/{firmware_filename}",
+                "url": f"http://{local_ip}:{server_port}/{firmware_filename}",
                 "id": 1,
                 "node_id": "LOCAL_ASSET",
                 "name": firmware_filename,
@@ -254,11 +251,11 @@ def create_metadata(compressed_data, version, repo_name, server_port,
                 "download_count": 0,
                 "created_at": timestamp,
                 "updated_at": timestamp,
-                "browser_download_url": f"https://{local_ip}:{https_port}/{firmware_filename}"
+                "browser_download_url": f"http://{local_ip}:{server_port}/{firmware_filename}"
             }
         ],
-        "tarball_url": f"https://{local_ip}:{https_port}/",
-        "zipball_url": f"https://{local_ip}:{https_port}/",
+        "tarball_url": f"http://{local_ip}:{server_port}/",
+        "zipball_url": f"http://{local_ip}:{server_port}/",
         "body": f"Locally built firmware release {version}.\nIncludes the compressed image and metadata."
     }
     

@@ -92,6 +92,20 @@ class FirmwareUpdaterTests(unittest.TestCase):
         self.assertEqual(normalized["version"], "1.2.3")
         self.assertEqual(normalized["model"], "pico-w-rp2040")
 
+    def test_parses_http_and_https_urls(self):
+        self.assertEqual(
+            self.updater._parse_url("http://192.168.1.10:8000/metadata.json"),
+            ("http", "192.168.1.10", 8000, "/metadata.json"),
+        )
+        self.assertEqual(
+            self.updater._parse_url("https://api.github.com/releases/latest"),
+            ("https", "api.github.com", 443, "/releases/latest"),
+        )
+
+    def test_rejects_unsupported_url_scheme(self):
+        with self.assertRaisesRegex(ValueError, "Unsupported URL scheme"):
+            self.updater._parse_url("ftp://example.invalid/release")
+
     def test_rejects_wrong_model(self):
         result = self.updater._normalize_release(
             self.release(asset={"model": "pico2-w-rp2350"}), "1.2.3")

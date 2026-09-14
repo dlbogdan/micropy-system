@@ -138,11 +138,20 @@ class FirmwareUpdater:
 
     @staticmethod
     def _parse_url(url):
-        """Parse URL into host, port, and path components."""
-        if not isinstance(url, str) or not url.startswith("https://"):
-            raise ValueError(f"Invalid or non-HTTPS URL: {url}")
+        """Parse an HTTP(S) URL into scheme, host, port, and path."""
+        if not isinstance(url, str):
+            raise ValueError(f"Invalid URL: {url}")
+        if url.startswith("https://"):
+            scheme = "https"
+            default_port = 443
+            url_no_proto = url[8:]
+        elif url.startswith("http://"):
+            scheme = "http"
+            default_port = 80
+            url_no_proto = url[7:]
+        else:
+            raise ValueError(f"Unsupported URL scheme: {url}")
         
-        url_no_proto = url[8:]
         host_end_index = url_no_proto.find('/')
         
         if host_end_index == -1:
@@ -152,7 +161,7 @@ class FirmwareUpdater:
             host_part = url_no_proto[:host_end_index]
             path = url_no_proto[host_end_index:]
 
-        port = 443
+        port = default_port
         if ':' in host_part:
             host, port_str = host_part.split(':', 1)
             port = int(port_str)  # Let ValueError bubble up if invalid
@@ -162,16 +171,17 @@ class FirmwareUpdater:
         if not host:
             raise ValueError(f"Could not extract host from URL: {url}")
             
-        return host, port, path
+        return scheme, host, port, path
             
     async def _wait_for(self, awaitable):
         """Apply the configured timeout to one network operation."""
         return await asyncio.wait_for(awaitable, self.request_timeout_ms / 1000)
 
-    async def _make_http_request(self, host, port, path):
-        """Make an HTTPS request and return the connection and response status."""
+    async def _make_http_request(self, scheme, host, port, path):
+        """Make an HTTP(S) request and return the connection and status."""
         logger.info(f'Connecting to {host}:{port} for path {path[:50]}...', log_to_file=True)
-        reader, writer = await self._wait_for(asyncio.open_connection(host, port, ssl=True))
+        reader, writer = await self._wait_for(asyncio.open_connection(
+            host, port, ssl=(scheme == "https")))
         headers = f'GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: MicroPython-Firmware-Updater/1.0\r\nConnection: close\r\n'
         if self.github_token:
             headers += f'Authorization: token {self.github_token}\r\n'
@@ -285,15 +295,17 @@ class FirmwareUpdater:
             if target_path:
                 self._remove_file_if_exists(target_path)
             while redirects > 0:
-                host, port, path = self._parse_url(current_url)
-                reader, writer, status_line = await self._make_http_request(host, port, path)
+                scheme, host, port, path = self._parse_url(current_url)
+                reader, writer, status_line = await self._make_http_request(
+                    scheme, host, port, path)
                 
                 if any(status_line.startswith(prefix) for prefix in (
                         b'HTTP/1.1 301', b'HTTP/1.1 302', b'HTTP/1.1 307', b'HTTP/1.1 308')):
                     location = await self._handle_redirect(reader, writer)
                     writer = None
-                    if not location or not location.startswith('https://'):
-                        raise ValueError("Redirect did not provide an absolute HTTPS location")
+                    if not location or not (
+                            location.startswith('https://') or location.startswith('http://')):
+                        raise ValueError("Redirect did not provide an absolute HTTP(S) location")
                     current_url = location
                     redirects -= 1
                     if redirects == 0:

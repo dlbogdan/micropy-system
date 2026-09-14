@@ -130,13 +130,26 @@ Set the `DIRECT_BASE_URL` to point to a server hosting firmware updates. The ser
 
 ### Testing Updates Locally
 
-The project includes `firmware_server.py` for local testing:
+The project includes a dependency-free HTTP server for local testing. Build
+with the same port that the server will use, then start it:
 
-```
-python firmware_server.py
+```sh
+.venv/bin/python local_builder.py --model pico2-w-rp2350 --version 1.0.1 --port 8000
+.venv/bin/python firmware_server.py --directory build --port 8000
 ```
 
-This starts a local HTTPS server serving firmware updates for testing.
+Use the printed `http://LAN_ADDRESS:8000/` value as `DIRECT_BASE_URL`. Target
+projects created by `tools/init_project.sh` also receive
+`tools/serve_update.sh`, so their local flow is simply:
+
+```sh
+tools/build_firmware.sh 1.0.1 pico2-w-rp2350
+tools/serve_update.sh
+```
+
+Plain HTTP avoids MicroPython trust-store problems with self-signed
+certificates. It is deliberately intended only for a trusted development LAN;
+production GitHub downloads continue to use HTTPS.
 
 ### Creating Firmware Bundles
 

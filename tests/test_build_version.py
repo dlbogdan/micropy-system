@@ -7,6 +7,7 @@ import unittest
 
 import local_builder
 import prepare_release
+import firmware_server
 
 
 class BuildVersionTests(unittest.TestCase):
@@ -77,6 +78,19 @@ class BuildVersionTests(unittest.TestCase):
                 directory, 'direct-server')
             self.assertEqual(metadata['tag_name'], 'v1.2.3')
             self.assertEqual(metadata['assets'][0]['model'], 'pico-w-rp2040')
+            self.assertTrue(metadata['url'].startswith('http://'))
+            self.assertIn(':8000/', metadata['assets'][0]['browser_download_url'])
+
+    def test_server_requires_metadata_and_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, 'metadata.json'):
+                firmware_server.validate_build_directory(directory)
+            (Path(directory) / 'metadata.json').write_text('{}')
+            (Path(directory) / 'pico-firmware.tar.zlib').write_bytes(b'archive')
+            self.assertEqual(
+                firmware_server.validate_build_directory(directory),
+                ['pico-firmware.tar.zlib'],
+            )
 
 
 if __name__ == "__main__":
