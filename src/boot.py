@@ -53,7 +53,11 @@ def create_firmware_updater():
         runtime_version = sys_config.get("FIRMWARE", "RUNTIME_VERSION", "1.29.0")
         mpy_version = sys_config.get("FIRMWARE", "MPY_VERSION", 6)
         mpy_sub_version = sys_config.get("FIRMWARE", "MPY_SUB_VERSION", 3)
-        mpy_arch = sys_config.get("FIRMWARE", "MPY_ARCH", None)
+        default_mpy_arch = {
+            "pico-w-rp2040": "armv6m",
+            "pico2-w-rp2350": "armv8m",
+        }.get(device_model, "unknown")
+        mpy_arch = sys_config.get("FIRMWARE", "MPY_ARCH", default_mpy_arch)
 
 
         # Define the boot progress callback function for the boot process

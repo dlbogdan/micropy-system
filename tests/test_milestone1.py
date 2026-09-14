@@ -97,6 +97,12 @@ class FirmwareUpdaterTests(unittest.TestCase):
         self.assertEqual(normalized["version"], "1.2.3")
         self.assertEqual(normalized["model"], "pico-w-rp2040")
 
+    def test_boot_has_backward_compatible_architecture_default(self):
+        boot_source = (ROOT / "src/boot.py").read_text()
+        self.assertIn('"pico-w-rp2040": "armv6m"', boot_source)
+        self.assertIn('"pico2-w-rp2350": "armv8m"', boot_source)
+        self.assertNotIn('"MPY_ARCH", None', boot_source)
+
     def test_parses_http_and_https_urls(self):
         self.assertEqual(
             self.updater._parse_url("http://192.168.1.10:8000/metadata.json"),
