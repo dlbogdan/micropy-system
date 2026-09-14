@@ -201,6 +201,9 @@ class FirmwareUpdaterTests(unittest.TestCase):
         self.assertEqual(result["install_mode"], "ab-slot")
         self.assertEqual(result["uncompressed_size"], 4096)
 
+    def test_missing_inactive_slot_has_zero_reclaimable_size(self):
+        self.assertFalse(self.updater._path_exists('/definitely-missing-slot'))
+
     def test_truncated_body_is_rejected_and_partial_file_removed(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "firmware"

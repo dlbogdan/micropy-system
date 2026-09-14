@@ -1071,7 +1071,8 @@ class FirmwareUpdater:
         inactive = "b" if state["active"] == "a" else "a"
         destination = "/apps/" + inactive
         required = int(self.pending_uncompressed_size or 0)
-        reclaimable = self._directory_size(destination)
+        reclaimable = (self._directory_size(destination)
+                       if self._path_exists(destination) else 0)
         free = uos.statvfs('/')[0] * uos.statvfs('/')[3]
         if free + reclaimable < required:
             self.error = "Insufficient space for inactive slot: need %s, have %s" % (
