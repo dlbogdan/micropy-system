@@ -119,6 +119,15 @@ class FirmwareUpdaterTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Unsupported URL scheme"):
             self.updater._parse_url("ftp://example.invalid/release")
 
+    def test_archive_path_validation_is_strict(self):
+        self.assertEqual(
+            self.updater._validate_archive_path('lib/coresys/module.mpy'),
+            'lib/coresys/module.mpy')
+        for path in ('', '/absolute.py', '../escape.py', 'a/../b.py', 'a//b.py'):
+            with self.subTest(path=path):
+                with self.assertRaises(ValueError):
+                    self.updater._validate_archive_path(path)
+
     def test_rejects_wrong_model(self):
         result = self.updater._normalize_release(
             self.release(asset={"model": "pico2-w-rp2350"}), "1.2.3")

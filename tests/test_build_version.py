@@ -148,6 +148,40 @@ class BuildVersionTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'both'):
                 local_builder.validate_module_uniqueness(directory)
 
+    def test_archive_path_contract_rejects_unsafe_and_deep_paths(self):
+        for path in ('', '/absolute.py', '../escape.py', 'a//b.py', '.hidden.py'):
+            with self.subTest(path=path):
+                with self.assertRaises(ValueError):
+                    local_builder.validate_archive_path(path)
+        with self.assertRaises(ValueError):
+            local_builder.validate_archive_path('/'.join(['a'] * 13) + '.py')
+
+    def test_builder_self_validates_manifest_completeness(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive_path = Path(directory) / 'bad.tar'
+            integrity = Path(directory) / 'integrity.json'
+            extra = Path(directory) / 'extra.py'
+            integrity.write_text('{}')
+            extra.write_text('VALUE = 1')
+            with tarfile.open(archive_path, 'w') as archive:
+                archive.add(integrity, arcname='integrity.json')
+                archive.add(extra, arcname='extra.py')
+            with self.assertRaisesRegex(ValueError, 'integrity'):
+                local_builder.validate_tar_archive(str(archive_path))
+
+    def test_builder_self_validates_generated_archive(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            prepared = root / 'prepared'
+            source.mkdir()
+            prepared.mkdir()
+            (source / 'boot.py').write_text('print("boot")')
+            (prepared / 'module.py').write_text('VALUE = 1')
+            archive = root / 'valid.tar'
+            local_builder.create_tar_archive(str(source), str(archive), str(prepared))
+            local_builder.validate_tar_archive(str(archive))
+
     def test_server_requires_metadata_and_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, 'metadata.json'):

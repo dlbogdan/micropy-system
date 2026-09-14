@@ -202,16 +202,16 @@ This is transitional and will be retired after A/B slots are proven.
 
 Define the archive as application-relative paths only. For the transitional installer these may map to root; for A/B they map to the inactive slot.
 
-- [ ] Require `integrity.json` as the first regular entry, or implement a full second verification pass.
-- [ ] Require every regular file to have exactly one manifest hash.
-- [ ] Reject manifest entries that do not correspond to an archived file.
-- [ ] Reject duplicate paths.
-- [ ] Reject absolute paths, parent traversal, empty normalized paths, excessive path depth, and excessive path length.
-- [ ] Reject unsupported TAR entry types.
-- [ ] Validate complete 512-byte TAR headers and file bodies.
-- [ ] Validate TAR header checksums.
-- [ ] Add limits for total uncompressed bytes, individual file size, and file count.
-- [ ] Close TAR and decompression streams on all outcomes.
+- [x] Require `integrity.json` as the first regular entry, or implement a full second verification pass.
+- [x] Require every regular file to have exactly one manifest hash.
+- [x] Reject manifest entries that do not correspond to an archived file.
+- [x] Reject duplicate paths.
+- [x] Reject absolute paths, parent traversal, empty normalized paths, excessive path depth, and excessive path length.
+- [x] Reject unsupported TAR entry types.
+- [x] Validate complete 512-byte TAR headers and file bodies.
+- [x] Validate TAR header checksums.
+- [x] Add limits for total uncompressed bytes, individual file size, and file count.
+- [x] Close TAR and decompression streams on all outcomes.
 
 #### 2.4 Represent file deletion
 

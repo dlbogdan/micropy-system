@@ -4,6 +4,9 @@ import uctypes
 TAR_HEADER = {
     "name": (uctypes.ARRAY | 0, uctypes.UINT8 | 100),
     "size": (uctypes.ARRAY | 124, uctypes.UINT8 | 12),
+    "checksum": (uctypes.ARRAY | 148, uctypes.UINT8 | 8),
+    "typeflag": (uctypes.ARRAY | 156, uctypes.UINT8 | 1),
+    "prefix": (uctypes.ARRAY | 345, uctypes.UINT8 | 155),
 }
 
 DIRTYPE = "dir"
@@ -25,6 +28,8 @@ class FileSection:
         if sz > self.content_len:
             sz = self.content_len
         data = self.f.read(sz)
+        if not data:
+            raise ValueError("Truncated TAR file body")
         sz = len(data)
         self.content_len -= sz
         return data
@@ -35,11 +40,20 @@ class FileSection:
         if len(buf) > self.content_len:
             buf = memoryview(buf)[:self.content_len]
         sz = self.f.readinto(buf)
+        if not sz:
+            raise ValueError("Truncated TAR file body")
         self.content_len -= sz
         return sz
 
     def skip(self):
-        self.f.read(self.content_len + self.align)
+        remaining = self.content_len + self.align
+        while remaining:
+            data = self.f.read(min(remaining, 512))
+            if not data:
+                raise ValueError("Truncated TAR file body or padding")
+            remaining -= len(data)
+        self.content_len = 0
+        self.align = 0
 
 class TarInfo:
 
@@ -55,6 +69,7 @@ class TarInfo:
 class TarFile:
 
     def __init__(self, name=None, fileobj=None):
+        self._owns_file = fileobj is None
         if fileobj:
             self.f = fileobj
         elif name is not None:
@@ -69,31 +84,48 @@ class TarFile:
             buf = self.f.read(512)
             if not buf:
                 return None
+            if len(buf) != 512:
+                raise ValueError("Truncated TAR header")
 
             h = uctypes.struct(uctypes.addressof(buf), TAR_HEADER, uctypes.LITTLE_ENDIAN) # type: ignore
 
             # Empty block means end of archive
             if h.name[0] == 0:
+                if any(buf):
+                    raise ValueError("Invalid TAR end block")
                 return None
+
+            try:
+                expected_checksum = int(bytes(h.checksum).rstrip(b"\0 ").strip(), 8)
+            except ValueError:
+                raise ValueError("Invalid TAR header checksum field")
+            checksum_buf = bytearray(buf)
+            checksum_buf[148:156] = b"        "
+            if sum(checksum_buf) != expected_checksum:
+                raise ValueError("Invalid TAR header checksum")
 
             d = TarInfo()
             # Name and size are null-terminated strings
-            d.name = str(h.name, "utf-8").rstrip("\0")
+            name = str(h.name, "utf-8").rstrip("\0")
+            prefix = str(h.prefix, "utf-8").rstrip("\0")
+            d.name = prefix + "/" + name if prefix else name
             try:
                 d.size = int(bytes(h.size).rstrip(b"\0").strip(), 8)
             except ValueError:
                 # Handle cases where size might be non-numeric or badly formatted
                 # Or if the field is all nulls, int conversion might fail
                 # Depending on strictness, could raise error or set default
-                d.size = 0 # Or raise an exception
+                raise ValueError("Invalid TAR size field")
 
-            # Type is determined by the last character of the name
-            if d.name and d.name[-1] == "/":
+            typeflag = bytes(h.typeflag)
+            if typeflag == b"5":
                 d.type = DIRTYPE
-                # Directories have size 0
-                d.size = 0
-            else:
+                if d.size != 0:
+                    raise ValueError("TAR directory has non-zero size")
+            elif typeflag in (b"0", b"\0"):
                 d.type = REGTYPE
+            else:
+                raise ValueError("Unsupported TAR entry type")
             
             self.subf = d.subf = FileSection(self.f, d.size, roundup(d.size, 512)) # type: ignore
             return d
@@ -109,3 +141,8 @@ class TarFile:
 
     def extractfile(self, tarinfo):
         return tarinfo.subf
+
+    def close(self):
+        if self._owns_file and self.f:
+            self.f.close()
+        self.f = None

@@ -35,6 +35,22 @@ MODEL_ARCHITECTURES = {
     'pico-w-rp2040': 'armv6m',
     'pico2-w-rp2350': 'armv8m',
 }
+MAX_ARCHIVE_FILES = 256
+MAX_ARCHIVE_FILE_BYTES = 512 * 1024
+MAX_ARCHIVE_TOTAL_BYTES = 2 * 1024 * 1024
+MAX_ARCHIVE_PATH_LENGTH = 192
+MAX_ARCHIVE_PATH_DEPTH = 12
+
+def validate_archive_path(path):
+    if not path or len(path) > MAX_ARCHIVE_PATH_LENGTH or path.startswith('.'):
+        raise ValueError(f"invalid archive path: {path}")
+    if path.startswith('/') or '\\' in path:
+        raise ValueError(f"invalid archive path: {path}")
+    parts = path.split('/')
+    if len(parts) > MAX_ARCHIVE_PATH_DEPTH or any(
+            not part or part in ('.', '..') for part in parts):
+        raise ValueError(f"invalid archive path: {path}")
+    return '/'.join(parts)
 
 def validate_mpy_cross():
     """Ensure the selected compiler emits the ABI pinned for this runtime."""
@@ -118,6 +134,7 @@ def create_hash_file(source_dir, temp_dir, hash_file_path):
                 arcname = os.path.relpath(full_path, start=temp_dir)
                 # Convert Windows backslashes to forward slashes for web compatibility
                 arcname = arcname.replace('\\', '/')
+                validate_archive_path(arcname)
                 file_hash = calculate_file_sha256(full_path)
                 hash_data[arcname] = file_hash
                 print(f"Added hash for {arcname}: {file_hash}")
@@ -175,8 +192,50 @@ def create_tar_archive(source_dir, tar_path, temp_dir):
                     full_path = os.path.join(root, file)
                     # Convert path to be relative to source_dir
                     arcname = os.path.relpath(full_path, start=temp_dir)
+                    validate_archive_path(arcname.replace('\\', '/'))
                     tar.add(full_path, arcname=arcname)
                     print(f"Added {arcname} to archive")
+
+def validate_tar_archive(tar_path):
+    """Validate the complete host artifact contract before compression."""
+    with tarfile.open(tar_path, 'r:') as archive:
+        members = archive.getmembers()
+        if not members or members[0].name != HASH_FILENAME or not members[0].isfile():
+            raise ValueError("integrity.json must be the first regular archive entry")
+        manifest_stream = archive.extractfile(members[0])
+        if manifest_stream is None:
+            raise ValueError("integrity.json cannot be read")
+        manifest = json.load(manifest_stream)
+        if not isinstance(manifest, dict):
+            raise ValueError("integrity.json must be an object")
+        seen = set()
+        files = set()
+        total = 0
+        for member in members:
+            path = validate_archive_path(member.name.rstrip('/'))
+            if path in seen:
+                raise ValueError(f"duplicate archive path: {path}")
+            seen.add(path)
+            if not (member.isfile() or member.isdir()):
+                raise ValueError(f"unsupported TAR entry type: {path}")
+            if member.isfile():
+                if member.size > MAX_ARCHIVE_FILE_BYTES:
+                    raise ValueError(f"archive file too large: {path}")
+                total += member.size
+                if total > MAX_ARCHIVE_TOTAL_BYTES:
+                    raise ValueError("archive exceeds total uncompressed byte limit")
+                if path != HASH_FILENAME:
+                    files.add(path)
+                    stream = archive.extractfile(member)
+                    if stream is None:
+                        raise ValueError(f"archive file cannot be read: {path}")
+                    digest = hashlib.sha256(stream.read()).hexdigest()
+                    if manifest.get(path) != digest:
+                        raise ValueError(f"integrity mismatch: {path}")
+        if len(files) > MAX_ARCHIVE_FILES:
+            raise ValueError("archive exceeds file-count limit")
+        if set(manifest.keys()) != files:
+            raise ValueError("integrity manifest does not exactly match archive files")
 
 def compress_zlib(tar_path, output_path, chunk_size=64 * 1024):
     """Stream TAR compression without retaining TAR or image in memory."""
@@ -409,6 +468,7 @@ def main(argv=None):
         # Step 2: Create temporary tar archive
         temp_tar = os.path.join(output_dir, 'temp_firmware.tar')
         create_tar_archive(source_dir, temp_tar, temp_dir)
+        validate_tar_archive(temp_tar)
         
         # Step 3: Compress the tar file
         compressed_size = compress_zlib(temp_tar, output_image)

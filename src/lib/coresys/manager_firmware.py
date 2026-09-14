@@ -17,6 +17,11 @@ class FirmwareUpdater:
     """Singleton firmware updater with progress callback support."""
     _instance = None
     _initialized = False
+    MAX_ARCHIVE_FILES = 256
+    MAX_ARCHIVE_FILE_BYTES = 512 * 1024
+    MAX_ARCHIVE_TOTAL_BYTES = 2 * 1024 * 1024
+    MAX_ARCHIVE_PATH_LENGTH = 192
+    MAX_ARCHIVE_PATH_DEPTH = 12
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -755,6 +760,20 @@ class FirmwareUpdater:
             except OSError as e:
                 if e.args[0] != 17: raise 
 
+    @classmethod
+    def _validate_archive_path(cls, path):
+        """Return a canonical application-relative archive path."""
+        if not isinstance(path, str) or not path or len(path) > cls.MAX_ARCHIVE_PATH_LENGTH:
+            raise ValueError("Invalid archive path length")
+        if path.startswith('/') or path.startswith('.') or '\\' in path:
+            raise ValueError(f"Unsafe archive path: {path}")
+        parts = path.split('/')
+        if len(parts) > cls.MAX_ARCHIVE_PATH_DEPTH:
+            raise ValueError(f"Archive path is too deep: {path}")
+        if any(not part or part in ('.', '..') for part in parts):
+            raise ValueError(f"Unsafe archive path: {path}")
+        return '/'.join(parts)
+
     def _check_update_archive_exists(self, archive_path):
         """Check if the update archive exists."""
         try:
@@ -846,15 +865,7 @@ class FirmwareUpdater:
             if not entry: 
                 return False, False  # not processed, no error
                 
-            file_name = entry.name
-            
-            # Silently skip PaxHeader entries
-            if "@PaxHeader" in file_name:
-                return False, False  # not processed, no error
-            
-            if file_name.startswith('/') or '..' in file_name or file_name.startswith('.'):
-                logger.warning(f"Skipping potentially unsafe path: {file_name}", log_to_file=True)
-                return False, False  # not processed, no error
+            file_name = self._validate_archive_path(entry.name.rstrip('/'))
                 
             target_path = f"{extract_to_dir}/{file_name}"
             
@@ -910,8 +921,8 @@ class FirmwareUpdater:
                                     # Success case - single line log with both hash and extract status
                                     logger.info(f"Extract & verify tar entry: {file_name} : Ok", log_to_file=True)
                             else:
-                                logger.warning(f"No hash entry found for {file_name}", log_to_file=True)
-                                logger.info(f"Extracting tar entry: {file_name} : Ok", log_to_file=True)
+                                self.error = f"No integrity entry found for archived file: {file_name}"
+                                return True, True
 
                         return True, False  # processed, no error
                 else:
@@ -929,7 +940,10 @@ class FirmwareUpdater:
         
         processed_count = 0
         error_count = 0
-        # tar = None
+        tar = None
+        seen_paths = set()
+        seen_files = set()
+        total_file_bytes = 0
         
         try:
             self._mkdirs(extract_to_dir)
@@ -945,6 +959,24 @@ class FirmwareUpdater:
             self.hash_sums = {}
             
             for entry in tar:  # Iterate through members
+                canonical_path = self._validate_archive_path(entry.name.rstrip('/'))
+                if canonical_path in seen_paths:
+                    raise ValueError(f"Duplicate archive path: {canonical_path}")
+                seen_paths.add(canonical_path)
+                if processed_count == 0 and not (
+                        canonical_path == "integrity.json"
+                        and entry.type == utarfile.REGTYPE):
+                    raise ValueError("integrity.json must be the first regular archive entry")
+                if entry.type == utarfile.REGTYPE:
+                    if entry.size > self.MAX_ARCHIVE_FILE_BYTES:
+                        raise ValueError(f"Archive file is too large: {canonical_path}")
+                    total_file_bytes += entry.size
+                    if total_file_bytes > self.MAX_ARCHIVE_TOTAL_BYTES:
+                        raise ValueError("Archive exceeds total uncompressed byte limit")
+                    if canonical_path != "integrity.json":
+                        seen_files.add(canonical_path)
+                        if len(seen_files) > self.MAX_ARCHIVE_FILES:
+                            raise ValueError("Archive exceeds file-count limit")
                 processed, had_error = await self._process_tar_entry(tar, entry, extract_to_dir)
                 if processed:
                     processed_count += 1
@@ -954,10 +986,24 @@ class FirmwareUpdater:
                     
             logger.info(f"Extraction finished. Files processed: {processed_count}, Errors: {error_count}", log_to_file=True)
 
+            manifest_paths = set(self.hash_sums.keys())
+            if manifest_paths != seen_files:
+                missing = manifest_paths - seen_files
+                extra = seen_files - manifest_paths
+                raise ValueError(
+                    "Integrity manifest mismatch: missing=%s extra=%s"
+                    % (list(missing), list(extra)))
+
         except Exception as e:
             self.error = f"Tar extraction failed: {str(e)}"
             logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
             error_count += 1  # Count this as a major error too
+        finally:
+            if tar:
+                try:
+                    tar.close()
+                except Exception:
+                    pass
             
         # Check for errors
         if error_count > 0 or self.error:
