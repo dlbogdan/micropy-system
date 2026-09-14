@@ -60,7 +60,7 @@ def create_hash_file(source_dir, temp_dir, hash_file_path):
     # Add hashes for all compiled .mpy files
     for root, _, files in os.walk(temp_dir):
         for file in files:
-            if file.endswith(".mpy"):
+            if file.endswith(".mpy") or file == "version.txt":
                 full_path = os.path.join(root, file)
                 arcname = os.path.relpath(full_path, start=temp_dir)
                 file_hash = calculate_file_sha256(full_path)
@@ -90,6 +90,10 @@ def create_tar_archive(source_dir, tar_path, temp_dir):
             if os.path.exists(os.path.join(source_dir, root_file)):
                 tar.add(os.path.join(source_dir, root_file), arcname=root_file)
                 print(f"Added {root_file} to archive as {root_file} at root level")
+
+        version_file = os.path.join(temp_dir, 'version.txt')
+        if os.path.exists(version_file):
+            tar.add(version_file, arcname='version.txt')
         
         # Then add all compiled .mpy files
         for root, _, files in os.walk(temp_dir):
@@ -117,9 +121,19 @@ def get_version():
     except Exception:
         return "unknown"
 
+def write_build_version(temp_dir, version):
+    """Create the device build string included in the release artifact."""
+    build_string = version[1:] if version.startswith('v') else version
+    version_path = os.path.join(temp_dir, 'version.txt')
+    with open(version_path, 'w') as version_file:
+        version_file.write(build_string + '\n')
+    return version_path
+
 def main():
+    version = get_version()
     # Create temporary directory for compiled files
     with tempfile.TemporaryDirectory() as temp_dir:
+        write_build_version(temp_dir, version)
         print(f"Compiling Python files to .mpy in temporary directory: {temp_dir}")
         compile_to_mpy(SOURCE_DIR, temp_dir)
         
@@ -131,7 +145,7 @@ def main():
 
         metadata = {
             "device_type": DEVICE_TYPE,
-            "version": get_version(),
+            "version": version,
             "sha256": calculate_sha256(compressed_data),
             "timestamp": datetime.utcnow().isoformat() + "Z"
         }

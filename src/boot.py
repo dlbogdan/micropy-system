@@ -8,6 +8,22 @@ from lib.coresys.manager_config import ConfigManager
 import lib.coresys.logger as logger
 from lib.coresys.manager_wifi import WiFiManager
 
+
+def output_build_string():
+    """Print the installed application build before boot initialization."""
+    build = "unknown"
+    try:
+        with open('/version.txt', 'r') as version_file:
+            value = version_file.read().strip()
+            if value:
+                build = value
+    except OSError:
+        pass
+    print("MicroPy System build: " + build)
+    return build
+
+
+output_build_string()
 logger.initialize(debug_level=3)
 sys_config = ConfigManager("/system-config.json")
 device_model = sys_config.get("DEVICE", "MODEL", "generic")
