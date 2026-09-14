@@ -105,10 +105,38 @@ desktop filesystem has the same rename semantics as the Pico.
 
 ### Installation
 
-1. Clone this repository
-2. Copy all files to your MicroPython device
-3. Create or modify the `/system-config.json` file with your configuration
-4. Reset the device to start the system
+For a new application repository, add this framework as a submodule and run its
+initializer:
+
+```sh
+git submodule add https://github.com/dlbogdan/micropy-system.git vendor/micropy-system
+git submodule update --init --recursive
+vendor/micropy-system/tools/init_project.sh
+tools/setup_build_env.sh
+cp system-config.example.json system-config.json
+```
+
+The initializer is non-destructive: it creates missing application boilerplate,
+build/serve/framework-update scripts, configuration templates, editor settings,
+ignore rules, and the GitHub release workflow without replacing existing files.
+
+Edit `system-config.json` with the device model, Wi-Fi credentials, and update
+source. For local development, set `DIRECT_BASE_URL` to the builder machine's
+trusted-LAN URL (for example `http://192.168.1.10:8000/`) and enable
+`UPDATE_ON_BOOT`.
+
+For the first installation on a blank Pico, run:
+
+```sh
+python3 tools/assemble.py
+```
+
+Configure MicroPico to synchronize only the generated `device` directory, then
+upload that complete tree once and reset the board. This bootstraps stable
+`boot.py`, the stable A/B selector, framework libraries, OTA state, and the
+initial application in slot A. Do not synchronize the application repository
+root. Subsequent application releases use OTA and must not replace stable root
+infrastructure.
 
 ### Update Server Options
 
@@ -154,6 +182,61 @@ generated serving helper accepts the port as its first argument.
 Plain HTTP avoids MicroPython trust-store problems with self-signed
 certificates. It is deliberately intended only for a trusted development LAN;
 production GitHub downloads continue to use HTTPS.
+
+### Application-to-Pico workflow
+
+1. Develop application code under `app`. The application entry point is
+   `app/main.py` and must expose an asynchronous `main()` function.
+2. Increment `app/version.txt` using `MAJOR.MINOR.PATCH`. The offered version
+   must be newer than the version currently stored on the Pico.
+3. Build and assemble using the application-owned helper:
+
+   ```sh
+   tools/build_firmware.sh
+   # Or select version and board explicitly:
+   tools/build_firmware.sh 1.2.3 pico2-w-rp2350
+   ```
+
+   This refreshes the bootstrap-only `device` tree and creates the A/B OTA
+   archive plus `metadata.json` and `image-info.json` under `build`.
+4. Keep the local server running in a separate terminal:
+
+   ```sh
+   tools/serve_update.sh 8000
+   ```
+
+   The build port, server port, and `DIRECT_BASE_URL` port must match. Do not
+   start a second server if the selected port is already in use.
+5. Reset or power-cycle the Pico. On boot it fetches metadata, verifies and
+   downloads the artifact, streams it into the inactive slot, persists the
+   candidate selector, and reboots into that candidate.
+6. After its application-level health checks and a short period of stable event
+   loop operation, the candidate must confirm itself:
+
+   ```python
+   from lib.coresys.ota_state import load_state
+   from lib.coresys.slot_manager import confirm_running_slot
+
+   state = load_state()
+   running_slot = state["pending"] or state["active"]
+   confirm_running_slot(running_slot)
+   ```
+
+   Confirmation must not depend on Internet availability. If the candidate
+   raises or fails to confirm before its deadline, the watchdog resets the
+   board, the stable selector restores the previous slot, and the failed
+   version is quarantined.
+7. Verify a successful promotion over USB if needed:
+
+   ```sh
+   mpremote connect auto exec "from lib.coresys.ota_state import load_state; print(open('/version.txt').read()); print(load_state())"
+   ```
+
+   A healthy result has the new version, `pending` set to `None`, zero candidate
+   attempts, no rejected version, and the newly selected active slot.
+8. Commit and push the application source, version, and any intentional
+   framework submodule update. The generated `build` and `device` trees should
+   normally remain uncommitted.
 
 Existing devices that still contain the HTTPS-only updater cannot fetch their
 first HTTP update. Bootstrap this transport change once over USB: reassemble
@@ -213,22 +296,20 @@ Pico W or `armv8m` for Pico 2 W). Compiled releases with incompatible metadata
 are rejected before artifact download; source-format releases do not require
 an MPY ABI match.
 
-Application repositories can invoke the same builder through a pinned Git
-submodule and package an assembled device tree without copying the builder:
+Application repositories invoke the same builder through a pinned Git
+submodule without copying its implementation:
 
 ```sh
 python vendor/micropy-system/local_builder.py \
-  --source-dir device \
+  --source-dir app \
   --output-dir build \
   --model pico2-w-rp2350 \
   --version 1.0.1
 ```
 
-Paths are resolved from the caller's working directory. The source directory
-must represent the final Pico filesystem layout, including root-level
-`boot.py` and `main.py`. This keeps application overlays and release workflows
-in the application repository while the packaging implementation remains in
-`micropy-system`.
+Paths are resolved from the caller's working directory. Normal OTA input is the
+application source directory; its `main.py` becomes slot-local `app_entry.py`.
+The complete assembled `device` tree exists only for initial USB provisioning.
 
 When this repository is installed at `vendor/micropy-system` as a Git
 submodule, initialize the surrounding application repository with:
