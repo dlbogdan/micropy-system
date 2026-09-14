@@ -204,7 +204,8 @@ def write_framework_build(temp_dir, build_string=None, build_date=None):
     return build_path
 
 def create_metadata(compressed_data, version, repo_name, server_port,
-                    device_model, firmware_filename, build_dir):
+                    device_model, firmware_filename, build_dir,
+                    output_mode='direct-server'):
     """Create GitHub-like metadata JSON file."""
     sha256 = calculate_sha256(compressed_data)
     timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -269,13 +270,22 @@ def create_metadata(compressed_data, version, repo_name, server_port,
         "timestamp": timestamp
     }
     
-    # Save the image info separately (for reference, not used by the server)
+    image_info["model"] = device_model
+    image_info["size"] = len(compressed_data)
+    image_info["runtime_version"] = "1.29.0"
+    image_info["mpy_version"] = 6
+    image_info["asset"] = firmware_filename
+
+    # This compact manifest is suitable as a GitHub release sidecar and is
+    # also useful for inspecting direct-server builds.
     image_info_path = os.path.join(build_dir, 'image-info.json')
     with open(image_info_path, 'w') as f:
         json.dump(image_info, f, indent=2)
     print(f"Created image metadata file: {image_info_path}")
     
-    return metadata_github_format
+    if output_mode == 'direct-server':
+        return metadata_github_format
+    return None
 
 def get_local_ip():
     """Get the local IP address of the machine."""
@@ -289,7 +299,7 @@ def get_local_ip():
     except Exception:
         return "127.0.0.1"  # Fallback to localhost
 
-def main():
+def main(argv=None):
     print("Starting local firmware builder")
     parser = argparse.ArgumentParser(description="Build firmware locally and prepare server files")
     parser.add_argument('--source-dir', default=SOURCE_DIR, help=f'Assembled device filesystem to package (default: {SOURCE_DIR})')
@@ -298,8 +308,14 @@ def main():
     parser.add_argument('--port', type=int, default=DEFAULT_PORT, help=f'Port for the server URLs (default: {DEFAULT_PORT})')
     parser.add_argument('--repo', type=str, default=DEFAULT_REPO, help=f'Repository name (default: {DEFAULT_REPO})')
     parser.add_argument('--model', required=True, choices=['pico-w-rp2040', 'pico2-w-rp2350'], help='Target board model')
+    parser.add_argument(
+        '--output-mode',
+        choices=['direct-server', 'github-assets'],
+        default='direct-server',
+        help='Write direct-server metadata or GitHub-uploadable asset files',
+    )
     
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     source_dir = os.path.abspath(args.source_dir)
     output_dir = os.path.abspath(args.output_dir)
     if not os.path.isdir(source_dir):
@@ -333,12 +349,15 @@ def main():
         # Step 4: Create GitHub-like metadata.json
         metadata = create_metadata(
             compressed_data, version, args.repo, args.port, args.model,
-            firmware_filename, output_dir)
+            firmware_filename, output_dir, args.output_mode)
         
-        # Step 5: Write metadata.json file
-        with open(metadata_file, 'w') as f:
-            json.dump(metadata, f, indent=2)
-        print(f"Created metadata file: {metadata_file}")
+        # Direct-server transport consumes GitHub-shaped metadata.json.
+        # GitHub transport receives equivalent release metadata from its API;
+        # image-info.json remains available as an uploadable build sidecar.
+        if metadata is not None:
+            with open(metadata_file, 'w') as f:
+                json.dump(metadata, f, indent=2)
+            print(f"Created direct-server metadata: {metadata_file}")
         
         # Clean up temporary tar file
         os.remove(temp_tar)
@@ -346,7 +365,9 @@ def main():
         
         print(f"\n=== Build complete ===")
         print(f"Firmware: {output_image}")
-        print(f"Metadata: {metadata_file}")
+        if metadata is not None:
+            print(f"Direct-server metadata: {metadata_file}")
+        print(f"Release sidecar: {os.path.join(output_dir, 'image-info.json')}")
         print(f"Version: {version}")
         print(f"Framework build: {framework_build} built {framework_build_date}")
         print(f"Local IP: {get_local_ip()}")

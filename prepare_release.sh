@@ -1,8 +1,5 @@
 #!/bin/bash
 set -e
 
-# Ensure output directory exists
-mkdir -p release
-
-# Run the Python packager
-python3 prepare_release.py
+# Compatibility launcher; all options are forwarded to the canonical builder.
+python3 prepare_release.py "$@"

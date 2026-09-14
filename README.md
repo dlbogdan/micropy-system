@@ -150,6 +150,11 @@ are separate assets:
 .venv/bin/python local_builder.py --model pico2-w-rp2350 --version 1.0.1
 ```
 
+The default `--output-mode direct-server` writes the compressed artifact,
+GitHub-shaped `metadata.json`, and `image-info.json`. Use
+`--output-mode github-assets` for a GitHub release artifact plus its compact
+`image-info.json` sidecar; GitHub itself supplies the API release response.
+
 Application repositories can invoke the same builder through a pinned Git
 submodule and package an assembled device tree without copying the builder:
 

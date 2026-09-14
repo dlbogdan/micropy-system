@@ -6,9 +6,16 @@ import tempfile
 import unittest
 
 import local_builder
+import prepare_release
 
 
 class BuildVersionTests(unittest.TestCase):
+    def test_legacy_packager_defaults_to_canonical_github_adapter(self):
+        args = prepare_release.compatibility_args([])
+        self.assertIn('github-assets', args)
+        self.assertIn('release', args)
+        self.assertIn('pico-w-rp2040', args)
+
     def test_writes_framework_git_build_independently(self):
         with tempfile.TemporaryDirectory() as directory:
             path = local_builder.write_framework_build(
@@ -50,6 +57,26 @@ class BuildVersionTests(unittest.TestCase):
     def test_build_date_is_utc(self):
         build_date = local_builder.get_build_date()
         self.assertRegex(build_date, r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$')
+
+    def test_github_adapter_writes_sidecar_without_direct_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            metadata = local_builder.create_metadata(
+                b'archive', 'v1.2.3', 'owner/repo', 8000,
+                'pico-w-rp2040', 'pico-w-rp2040-firmware.tar.zlib',
+                directory, 'github-assets')
+            self.assertIsNone(metadata)
+            sidecar = json.loads((Path(directory) / 'image-info.json').read_text())
+            self.assertEqual(sidecar['model'], 'pico-w-rp2040')
+            self.assertEqual(sidecar['asset'], 'pico-w-rp2040-firmware.tar.zlib')
+
+    def test_direct_server_adapter_returns_github_shaped_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            metadata = local_builder.create_metadata(
+                b'archive', 'v1.2.3', 'owner/repo', 8000,
+                'pico-w-rp2040', 'pico-w-rp2040-firmware.tar.zlib',
+                directory, 'direct-server')
+            self.assertEqual(metadata['tag_name'], 'v1.2.3')
+            self.assertEqual(metadata['assets'][0]['model'], 'pico-w-rp2040')
 
 
 if __name__ == "__main__":

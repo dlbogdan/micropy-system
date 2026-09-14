@@ -184,10 +184,10 @@ This is transitional and will be retired after A/B slots are proven.
 
 #### 2.1 Consolidate builders
 
-- [ ] Select `local_builder.py` as the canonical implementation or extract shared build functions into one module.
-- [ ] Make `prepare_release.py` call the shared builder or remove it.
-- [ ] Provide output adapters for local direct-server files and GitHub release assets.
-- [ ] Create output directories explicitly and fail with a concise diagnostic.
+- [x] Select `local_builder.py` as the canonical implementation or extract shared build functions into one module.
+- [x] Make `prepare_release.py` call the shared builder or remove it.
+- [x] Provide output adapters for local direct-server files and GitHub release assets.
+- [x] Create output directories explicitly and fail with a concise diagnostic.
 - [ ] Stream TAR compression on the desktop instead of loading both TAR and compressed image fully into memory.
 
 #### 2.2 Pin `.mpy` compatibility
