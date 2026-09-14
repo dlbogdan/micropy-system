@@ -390,6 +390,12 @@ workflow** and enter a semantic version. The release workflow also runs when a
 For MicroPico deployment, copy `system-config.example.json` to the ignored
 `system-config.json`, edit it, run `python3 tools/assemble.py`, and configure
 MicroPico's sync folder as `device`.
+
+The first transition from an HTTPS-only framework build to local HTTP must be
+provisioned once through USB/MicroPico because the installed old updater cannot
+download HTTP. After synchronization, ensure no stale
+`lib/coresys/manager_firmware.mpy` remains beside the assembled `.py`, reset the
+board, and then use local HTTP OTA normally.
 EOF
 
 for entry in '.vscode/' '.micropico' '.venv/' '__pycache__/' '*.pyc' 'device/' 'build/' 'release/' 'system-config.json'; do

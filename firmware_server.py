@@ -3,6 +3,7 @@
 
 import argparse
 from datetime import datetime
+import errno
 import functools
 import http.server
 import json
@@ -83,7 +84,15 @@ def run_server(directory, host='', port=DEFAULT_PORT):
     mimetypes.add_type('application/json', '.json')
     handler = functools.partial(FirmwareRequestHandler, directory=directory)
     address = get_local_ip() if host in ('', '0.0.0.0') else host
-    with ReusableTCPServer((host, port), handler) as server:
+    try:
+        server = ReusableTCPServer((host, port), handler)
+    except OSError as error:
+        if getattr(error, 'errno', None) == errno.EADDRINUSE:
+            raise ValueError(
+                f"port {port} is already in use; stop the existing server "
+                f"or choose another port with --port") from error
+        raise
+    with server:
         print("Serving: " + ', '.join(archives))
         print(f"OTA URL: http://{address}:{port}/")
         print(f"File list: http://{address}:{port}/list")

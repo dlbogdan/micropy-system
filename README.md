@@ -147,9 +147,20 @@ tools/build_firmware.sh 1.0.1 pico2-w-rp2350
 tools/serve_update.sh
 ```
 
+If port 8000 is already occupied, either stop the existing server or choose a
+matching alternate port for both build and serving (for example 8001). The
+generated serving helper accepts the port as its first argument.
+
 Plain HTTP avoids MicroPython trust-store problems with self-signed
 certificates. It is deliberately intended only for a trusted development LAN;
 production GitHub downloads continue to use HTTPS.
+
+Existing devices that still contain the HTTPS-only updater cannot fetch their
+first HTTP update. Bootstrap this transport change once over USB: reassemble
+the device tree and synchronize it with MicroPico (or replace
+`lib/coresys/manager_firmware.py`/`.mpy` manually), then reset the board. If an
+older `manager_firmware.mpy` is present beside a newly copied `.py`, remove the
+stale `.mpy` so MicroPython cannot continue importing the old implementation.
 
 ### Creating Firmware Bundles
 

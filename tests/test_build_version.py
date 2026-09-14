@@ -1,6 +1,7 @@
 import io
 import json
 from pathlib import Path
+import socket
 import tarfile
 import tempfile
 import unittest
@@ -91,6 +92,20 @@ class BuildVersionTests(unittest.TestCase):
                 firmware_server.validate_build_directory(directory),
                 ['pico-firmware.tar.zlib'],
             )
+
+    def test_server_reports_an_in_use_port_concisely(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / 'metadata.json').write_text('{}')
+            (Path(directory) / 'pico-firmware.tar.zlib').write_bytes(b'archive')
+            occupied = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            occupied.bind(('127.0.0.1', 0))
+            occupied.listen(1)
+            port = occupied.getsockname()[1]
+            try:
+                with self.assertRaisesRegex(ValueError, 'already in use'):
+                    firmware_server.run_server(directory, '127.0.0.1', port)
+            finally:
+                occupied.close()
 
 
 if __name__ == "__main__":
