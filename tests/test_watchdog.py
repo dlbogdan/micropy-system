@@ -38,8 +38,8 @@ class WatchdogTests(unittest.IsolatedAsyncioTestCase):
             timeout_ms=8000, feed_interval_ms=10,
             confirmation_ms=1000)
 
-        first_task = owner.start_candidate_supervision("b")
-        second_task = owner.start_candidate_supervision("b")
+        first_task = owner.start_supervision("b")
+        second_task = owner.start_supervision("b")
         await asyncio.sleep(0.025)
 
         self.assertTrue(owner.active)
@@ -57,7 +57,7 @@ class WatchdogTests(unittest.IsolatedAsyncioTestCase):
         owner = module.WatchdogOwner(
             timeout_ms=8000, feed_interval_ms=1, confirmation_ms=2)
 
-        task = owner.start_candidate_supervision("b")
+        task = owner.start_supervision("b")
         await task
 
         self.assertEqual(hardware_watchdog.feed.call_count, 3)
@@ -70,8 +70,25 @@ class WatchdogTests(unittest.IsolatedAsyncioTestCase):
         owner = module.WatchdogOwner(
             timeout_ms=8000, feed_interval_ms=5, confirmation_ms=5)
 
-        task = owner.start_candidate_supervision("b")
+        task = owner.start_supervision("b")
         await asyncio.sleep(0.016)
+
+        self.assertFalse(task.done())
+        self.assertGreaterEqual(hardware_watchdog.feed.call_count, 3)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    async def test_normal_boot_feeds_watchdog_without_candidate_deadline(self):
+        module, machine = load_module()
+        module.load_state.return_value = {"active": "a", "pending": None}
+        hardware_watchdog = mock.Mock()
+        machine.WDT.return_value = hardware_watchdog
+        owner = module.WatchdogOwner(
+            timeout_ms=8000, feed_interval_ms=2, confirmation_ms=2)
+
+        task = owner.start_supervision()
+        await asyncio.sleep(0.008)
 
         self.assertFalse(task.done())
         self.assertGreaterEqual(hardware_watchdog.feed.call_count, 3)

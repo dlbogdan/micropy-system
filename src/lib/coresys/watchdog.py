@@ -35,19 +35,21 @@ class WatchdogOwner:
         elapsed_ms = 0
         while True:
             state = load_state()
-            if state["pending"] == self._candidate_slot:
+            if (self._candidate_slot is not None and
+                    state["pending"] == self._candidate_slot):
                 if elapsed_ms >= self.confirmation_ms:
                     print("Candidate confirmation timed out; watchdog will reset")
                     return
-            elif state["active"] != self._candidate_slot:
+            elif (self._candidate_slot is not None and
+                  state["active"] != self._candidate_slot):
                 print("Candidate supervision ended without promotion")
                 return
             watchdog.feed()
             await asyncio.sleep(self.feed_interval_ms / 1000)
             elapsed_ms += self.feed_interval_ms
 
-    def start_candidate_supervision(self, candidate_slot):
-        """Start candidate supervision once; only this owner feeds the WDT."""
+    def start_supervision(self, candidate_slot=None):
+        """Start the sole WDT feed task, optionally with a candidate deadline."""
         if self._watchdog is not None:
             return self._feed_task
         self._candidate_slot = candidate_slot
