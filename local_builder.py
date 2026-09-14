@@ -18,6 +18,7 @@ import argparse
 # Configuration defaults. Applications can override these through the CLI.
 SOURCE_DIR = 'src'
 BUILD_DIR = 'build'
+FRAMEWORK_ROOT = os.path.dirname(os.path.abspath(__file__))
 HASH_FILENAME = 'integrity.json'  # Name of the hash file included in the archive
 FRAMEWORK_BUILD_FILENAME = 'framework-build.txt'
 DEVICE_TYPE = 'pico'  # Target device type
@@ -234,6 +235,7 @@ def get_framework_build():
         return subprocess.check_output(
             ['git', 'describe', '--tags', '--always', '--dirty'],
             stderr=subprocess.DEVNULL,
+            cwd=FRAMEWORK_ROOT,
         ).decode().strip()
     except Exception:
         return "unknown"

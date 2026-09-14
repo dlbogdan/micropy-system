@@ -42,6 +42,12 @@ class BuildVersionTests(unittest.TestCase):
                 "v1.2.3-4-gabc123-dirty built 2026-09-14T08:00:00Z\n",
             )
 
+    def test_framework_build_is_resolved_from_framework_checkout(self):
+        with mock.patch(
+                'local_builder.subprocess.check_output', return_value=b'abc123\n') as call:
+            self.assertEqual(local_builder.get_framework_build(), 'abc123')
+            self.assertEqual(call.call_args.kwargs['cwd'], local_builder.FRAMEWORK_ROOT)
+
     def test_framework_build_is_hashed_and_packaged(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
