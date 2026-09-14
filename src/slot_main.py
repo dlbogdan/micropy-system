@@ -8,6 +8,7 @@ from lib.coresys.slot_manager import (
     prepare_slot_boot,
     rollback_candidate,
 )
+from lib.coresys.watchdog import watchdog_owner
 
 
 def output_reset_cause():
@@ -23,6 +24,9 @@ async def launch():
     output_reset_cause()
     slot, is_candidate, state = prepare_slot_boot()
     activate_slot_path(slot)
+    if is_candidate:
+        print("Supervising candidate slot %s with watchdog" % slot)
+        watchdog_owner.start_candidate_supervision(slot)
     try:
         app_entry = __import__("app_entry")
         await app_entry.main()
