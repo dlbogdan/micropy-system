@@ -297,7 +297,9 @@ write_file system-config.example.json <<'EOF'
     "NETWORK_TIMEOUT_MS": 60000,
     "REQUEST_TIMEOUT_MS": 15000,
     "RUNTIME_VERSION": "1.29.0",
-    "MPY_VERSION": 6
+    "MPY_VERSION": 6,
+    "MPY_SUB_VERSION": 3,
+    "MPY_ARCH": "armv8m"
   }
 }
 EOF

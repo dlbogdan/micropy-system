@@ -23,7 +23,7 @@ class FirmwareUpdater:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, device_model=None, github_repo=None, github_token="", chunk_size=2048, max_redirects=10, direct_base_url=None, core_system_files=None, update_on_boot=True, max_failure_attempts=3, progress_callback=None, request_timeout_ms=15000, runtime_version="1.29.0", mpy_version=6):
+    def __init__(self, device_model=None, github_repo=None, github_token="", chunk_size=2048, max_redirects=10, direct_base_url=None, core_system_files=None, update_on_boot=True, max_failure_attempts=3, progress_callback=None, request_timeout_ms=15000, runtime_version="1.29.0", mpy_version=6, mpy_sub_version=3, mpy_arch=None):
         # If already initialized, just update the progress callback if provided
         if self._initialized:
             if progress_callback is not None:
@@ -49,6 +49,8 @@ class FirmwareUpdater:
         self.request_timeout_ms = request_timeout_ms
         self.runtime_version = runtime_version
         self.mpy_version = mpy_version
+        self.mpy_sub_version = mpy_sub_version
+        self.mpy_arch = mpy_arch
         
         # Progress callback support
         self.progress_callback = progress_callback
@@ -566,6 +568,9 @@ class FirmwareUpdater:
             "model": selected_asset.get("model") or latest_release.get("model") or latest_release.get("device_type"),
             "runtime_version": selected_asset.get("runtime_version") or latest_release.get("runtime_version"),
             "mpy_version": selected_asset.get("mpy_version") or latest_release.get("mpy_version"),
+            "mpy_sub_version": selected_asset.get("mpy_sub_version") or latest_release.get("mpy_sub_version"),
+            "mpy_arch": selected_asset.get("mpy_arch") or latest_release.get("mpy_arch"),
+            "module_format": selected_asset.get("module_format") or latest_release.get("module_format") or "mpy",
         }
         if normalized["model"] is None and normalized["filename"].startswith(self.device_model + "-"):
             normalized["model"] = self.device_model
@@ -584,6 +589,16 @@ class FirmwareUpdater:
         if normalized["mpy_version"] is not None and int(normalized["mpy_version"]) != self.mpy_version:
             self.error = f"Release MPY version {normalized['mpy_version']} does not match {self.mpy_version}"
             return None
+        if normalized["module_format"] == "mpy":
+            if normalized["mpy_sub_version"] is None:
+                self.error = "Compiled release is missing MPY sub-version"
+                return None
+            if int(normalized["mpy_sub_version"]) != self.mpy_sub_version:
+                self.error = f"Release MPY sub-version {normalized['mpy_sub_version']} does not match {self.mpy_sub_version}"
+                return None
+            if self.mpy_arch and normalized["mpy_arch"] != self.mpy_arch:
+                self.error = f"Release MPY architecture {normalized['mpy_arch']} does not match {self.mpy_arch}"
+                return None
         return normalized
     
     def _compare_versions(self, latest_version_str):

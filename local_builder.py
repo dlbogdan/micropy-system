@@ -26,6 +26,30 @@ DEVICE_TYPE = 'pico'  # Target device type
 DEFAULT_VERSION = '1.0.0'
 DEFAULT_REPO = 'dlbogdan/test-actions-buildfw'
 DEFAULT_PORT = 8000
+RUNTIME_VERSION = '1.29.0'
+MPY_VERSION = 6
+MPY_SUB_VERSION = 3
+MPY_CROSS_PACKAGE_VERSION = '1.29.0.post2'
+MODEL_ARCHITECTURES = {
+    'pico-w-rp2040': 'armv6m',
+    'pico2-w-rp2350': 'armv8m',
+}
+
+def validate_mpy_cross():
+    """Ensure the selected compiler emits the ABI pinned for this runtime."""
+    try:
+        output = subprocess.check_output(
+            ['mpy-cross', '--version'], stderr=subprocess.STDOUT).decode()
+    except (OSError, subprocess.CalledProcessError) as error:
+        raise RuntimeError(
+            f"mpy-cross {MPY_CROSS_PACKAGE_VERSION} is required; "
+            "install requirements.txt") from error
+    expected_runtime = f"MicroPython v{RUNTIME_VERSION}"
+    expected_abi = f"mpy v{MPY_VERSION}.{MPY_SUB_VERSION}"
+    if expected_runtime not in output or expected_abi not in output:
+        raise RuntimeError(
+            f"incompatible mpy-cross; expected {expected_runtime} emitting "
+            f"{expected_abi}, got: {output.strip()}")
 
 def ensure_directory(directory):
     """Create directory if it doesn't exist."""
@@ -37,6 +61,8 @@ def prepare_modules(source_dir, temp_dir, module_format='mpy'):
     """Prepare non-launcher modules in exactly one selected representation."""
     print(f"Preparing {module_format} modules in temporary directory: {temp_dir}")
     
+    if module_format == 'mpy':
+        validate_mpy_cross()
     # Compile files in src directory
     for root, _, files in os.walk(source_dir):
         for file in files:
@@ -227,7 +253,7 @@ def write_framework_build(temp_dir, build_string=None, build_date=None):
 
 def create_metadata(compressed_path, version, repo_name, server_port,
                     device_model, firmware_filename, build_dir,
-                    output_mode='direct-server'):
+                    output_mode='direct-server', module_format='mpy'):
     """Create GitHub-like metadata JSON file."""
     sha256 = calculate_file_sha256(compressed_path)
     compressed_size = os.path.getsize(compressed_path)
@@ -271,6 +297,9 @@ def create_metadata(compressed_path, version, repo_name, server_port,
                 "model": device_model,
                 "runtime_version": "1.29.0",
                 "mpy_version": 6,
+                "mpy_sub_version": MPY_SUB_VERSION,
+                "mpy_arch": MODEL_ARCHITECTURES[device_model],
+                "module_format": module_format,
                 "download_count": 0,
                 "created_at": timestamp,
                 "updated_at": timestamp,
@@ -294,6 +323,9 @@ def create_metadata(compressed_path, version, repo_name, server_port,
     image_info["size"] = compressed_size
     image_info["runtime_version"] = "1.29.0"
     image_info["mpy_version"] = 6
+    image_info["mpy_sub_version"] = MPY_SUB_VERSION
+    image_info["mpy_arch"] = MODEL_ARCHITECTURES[device_model]
+    image_info["module_format"] = module_format
     image_info["asset"] = firmware_filename
 
     # This compact manifest is suitable as a GitHub release sidecar and is
@@ -382,7 +414,8 @@ def main(argv=None):
         # Step 4: Create GitHub-like metadata.json
         metadata = create_metadata(
             output_image, version, args.repo, args.port, args.model,
-            firmware_filename, output_dir, args.output_mode)
+            firmware_filename, output_dir, args.output_mode,
+            args.module_format)
         
         # Direct-server transport consumes GitHub-shaped metadata.json.
         # GitHub transport receives equivalent release metadata from its API;

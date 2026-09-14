@@ -1,6 +1,7 @@
 import io
 import json
 from pathlib import Path
+from unittest import mock
 import socket
 import tarfile
 import tempfile
@@ -93,6 +94,9 @@ class BuildVersionTests(unittest.TestCase):
                 directory, 'direct-server')
             self.assertEqual(metadata['tag_name'], 'v1.2.3')
             self.assertEqual(metadata['assets'][0]['model'], 'pico-w-rp2040')
+            self.assertEqual(metadata['assets'][0]['mpy_sub_version'], 3)
+            self.assertEqual(metadata['assets'][0]['mpy_arch'], 'armv6m')
+            self.assertEqual(metadata['assets'][0]['module_format'], 'mpy')
             self.assertTrue(metadata['url'].startswith('http://'))
             self.assertIn(':8000/', metadata['assets'][0]['browser_download_url'])
 
@@ -105,6 +109,18 @@ class BuildVersionTests(unittest.TestCase):
             size = local_builder.compress_zlib(str(source), str(output), chunk_size=127)
             self.assertEqual(size, output.stat().st_size)
             self.assertEqual(zlib.decompress(output.read_bytes()), payload)
+
+    def test_pinned_mpy_cross_emits_expected_abi(self):
+        expected = b'MicroPython v1.29.0; mpy-cross emitting mpy v6.3\n'
+        with mock.patch('local_builder.subprocess.check_output', return_value=expected):
+            local_builder.validate_mpy_cross()
+
+    def test_incompatible_mpy_cross_is_rejected(self):
+        incompatible = b'MicroPython v1.28.0; mpy-cross emitting mpy v6.2\n'
+        with mock.patch(
+                'local_builder.subprocess.check_output', return_value=incompatible):
+            with self.assertRaisesRegex(RuntimeError, 'incompatible mpy-cross'):
+                local_builder.validate_mpy_cross()
 
     def test_py_module_format_copies_sources_without_mpy_twin(self):
         with tempfile.TemporaryDirectory() as directory:

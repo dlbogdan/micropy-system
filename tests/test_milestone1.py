@@ -70,6 +70,8 @@ class FirmwareUpdaterTests(unittest.TestCase):
             direct_base_url="https://example.invalid/",
             runtime_version="1.29.0",
             mpy_version=6,
+            mpy_sub_version=3,
+            mpy_arch="armv6m",
         )
 
     def release(self, **changes):
@@ -81,6 +83,9 @@ class FirmwareUpdaterTests(unittest.TestCase):
             "model": "pico-w-rp2040",
             "runtime_version": "1.29.0",
             "mpy_version": 6,
+            "mpy_sub_version": 3,
+            "mpy_arch": "armv6m",
+            "module_format": "mpy",
         }
         asset.update(changes.pop("asset", {}))
         release = {"tag_name": "v1.2.3", "assets": [asset]}
@@ -116,6 +121,28 @@ class FirmwareUpdaterTests(unittest.TestCase):
         result = self.updater._normalize_release(
             self.release(asset={"sha256": None}), "1.2.3")
         self.assertIsNone(result)
+
+    def test_rejects_wrong_mpy_sub_version(self):
+        result = self.updater._normalize_release(
+            self.release(asset={"mpy_sub_version": 2}), "1.2.3")
+        self.assertIsNone(result)
+        self.assertIn("sub-version", self.updater.error)
+
+    def test_rejects_wrong_mpy_architecture(self):
+        result = self.updater._normalize_release(
+            self.release(asset={"mpy_arch": "armv8m"}), "1.2.3")
+        self.assertIsNone(result)
+        self.assertIn("architecture", self.updater.error)
+
+    def test_py_release_does_not_require_mpy_abi(self):
+        normalized = self.updater._normalize_release(
+            self.release(asset={
+                "module_format": "py",
+                "mpy_version": None,
+                "mpy_sub_version": None,
+                "mpy_arch": None,
+            }), "1.2.3")
+        self.assertIsNotNone(normalized)
 
     def test_truncated_body_is_rejected_and_partial_file_removed(self):
         with tempfile.TemporaryDirectory() as directory:

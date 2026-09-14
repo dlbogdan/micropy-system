@@ -52,6 +52,8 @@ def create_firmware_updater():
         request_timeout_ms = sys_config.get("FIRMWARE", "REQUEST_TIMEOUT_MS", 15000)
         runtime_version = sys_config.get("FIRMWARE", "RUNTIME_VERSION", "1.29.0")
         mpy_version = sys_config.get("FIRMWARE", "MPY_VERSION", 6)
+        mpy_sub_version = sys_config.get("FIRMWARE", "MPY_SUB_VERSION", 3)
+        mpy_arch = sys_config.get("FIRMWARE", "MPY_ARCH", None)
 
 
         # Define the boot progress callback function for the boot process
@@ -74,7 +76,9 @@ def create_firmware_updater():
             progress_callback=boot_progress_callback,
             request_timeout_ms=request_timeout_ms,
             runtime_version=runtime_version,
-            mpy_version=mpy_version
+            mpy_version=mpy_version,
+            mpy_sub_version=mpy_sub_version,
+            mpy_arch=mpy_arch
         )
         
         if direct_base_url:

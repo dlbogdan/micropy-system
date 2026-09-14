@@ -192,9 +192,9 @@ This is transitional and will be retired after A/B slots are proven.
 
 #### 2.2 Pin `.mpy` compatibility
 
-- [ ] Pin/document the exact `mpy-cross` version matching the supported MicroPython firmware.
-- [ ] Record the MicroPython/MPY ABI in release metadata.
-- [ ] Reject an incompatible release before installation.
+- [x] Pin/document the exact `mpy-cross` version matching the supported MicroPython firmware.
+- [x] Record the MicroPython/MPY ABI in release metadata.
+- [x] Reject an incompatible release before installation.
 - [x] Provide a build option that packages `.py` instead of `.mpy` for debugging compatibility issues.
 - [x] Never package both `.py` and `.mpy` for the same module unless precedence is intentional and tested.
 

@@ -191,6 +191,13 @@ Use `--module-format py` to package debuggable source modules instead of the
 default compiled `.mpy` modules. The builder rejects ambiguous prepared trees
 that contain both representations of the same module.
 
+The build toolchain pins `mpy-cross==1.29.0.post2` for MicroPython 1.29.0 and
+verifies that it emits MPY v6.3 before compiling. Release metadata records the
+module format, MPY major/sub-version, and target architecture (`armv6m` for
+Pico W or `armv8m` for Pico 2 W). Compiled releases with incompatible metadata
+are rejected before artifact download; source-format releases do not require
+an MPY ABI match.
+
 Application repositories can invoke the same builder through a pinned Git
 submodule and package an assembled device tree without copying the builder:
 
