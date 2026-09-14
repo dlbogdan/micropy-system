@@ -7,6 +7,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -200,6 +201,13 @@ class FirmwareUpdaterTests(unittest.TestCase):
         }), "1.2.3")
         self.assertEqual(result["install_mode"], "ab-slot")
         self.assertEqual(result["uncompressed_size"], 4096)
+
+    def test_rejected_ab_candidate_is_quarantined(self):
+        rejected = {"rejected_version": "1.2.3"}
+        with mock.patch.object(MODULE, "load_state", return_value=rejected):
+            result = self.updater._normalize_release(self.release(), "1.2.3")
+        self.assertIsNone(result)
+        self.assertIn("quarantined", self.updater.error)
 
     def test_missing_inactive_slot_has_zero_reclaimable_size(self):
         self.assertFalse(self.updater._path_exists('/definitely-missing-slot'))

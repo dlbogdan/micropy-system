@@ -553,6 +553,10 @@ class FirmwareUpdater:
 
     def _normalize_release(self, latest_release, latest_version_str):
         """Normalize GitHub-shaped metadata into the installer contract."""
+        slot_state = load_state()
+        if slot_state.get("rejected_version") == latest_version_str:
+            self.error = "A/B candidate release %s is quarantined" % latest_version_str
+            return None
         assets = latest_release.get("assets", [])
         selected_asset = None
         generic_asset = None
