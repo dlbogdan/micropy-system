@@ -27,10 +27,6 @@ async def launch():
     if is_candidate:
         print("Supervising candidate slot %s with watchdog" % slot)
         watchdog_owner.start_supervision(slot)
-    else:
-        # RP-family watchdog state can survive a machine reset. Stable launcher
-        # infrastructure therefore owns and feeds it on every normal boot too.
-        watchdog_owner.start_supervision()
     try:
         app_entry = __import__("app_entry")
         await app_entry.main()

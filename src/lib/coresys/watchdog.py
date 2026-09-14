@@ -41,7 +41,14 @@ class WatchdogOwner:
                     print("Candidate confirmation timed out; watchdog will reset")
                     return
             elif (self._candidate_slot is not None and
-                  state["active"] != self._candidate_slot):
+                  state["active"] == self._candidate_slot):
+                # A MicroPython hardware WDT cannot be stopped. Confirmation is
+                # already durable, so reboot once to return as an ordinary slot
+                # with no watchdog armed and preserve raw-REPL/debugger access.
+                print("Candidate confirmed; rebooting without watchdog")
+                machine.reset()
+                return
+            elif self._candidate_slot is not None:
                 print("Candidate supervision ended without promotion")
                 return
             watchdog.feed()
