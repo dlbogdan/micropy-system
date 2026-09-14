@@ -111,9 +111,18 @@ if not APP.is_dir():
 
 shutil.rmtree(DEVICE, ignore_errors=True)
 shutil.copytree(FRAMEWORK, DEVICE, ignore=shutil.ignore_patterns(
-    "__pycache__", "*.pyc", "system-config.json", "version.txt"))
-shutil.copytree(APP, DEVICE, dirs_exist_ok=True, ignore=shutil.ignore_patterns(
-    "__pycache__", "*.pyc"))
+    "__pycache__", "*.pyc", "system-config.json", "version.txt", "slot_main.py"))
+shutil.copy2(FRAMEWORK / "slot_main.py", DEVICE / "main.py")
+slot_a = DEVICE / "apps" / "a"
+slot_a.mkdir(parents=True)
+for item in APP.iterdir():
+    if item.name in ("version.txt", "__pycache__"):
+        continue
+    destination = slot_a / ("app_entry.py" if item.name == "main.py" else item.name)
+    if item.is_dir():
+        shutil.copytree(item, destination, dirs_exist_ok=True)
+    else:
+        shutil.copy2(item, destination)
 
 config = ROOT / "system-config.json"
 if config.is_file():
@@ -148,6 +157,7 @@ SUBMODULE="$SUBMODULE_PATH"
 VERSION=\${1:-\$(cat "\$APP_ROOT/app/version.txt")}
 MODEL=\${2:-pico2-w-rp2350}
 PYTHON="\$APP_ROOT/.venv/bin/python"
+SOURCE_DIR="\$APP_ROOT/device"
 
 case "\$VERSION" in
     *[!0-9.]*|*.*.*.*|.*|*.)
@@ -166,11 +176,14 @@ fi
 
 if [ "\$#" -gt 0 ]; then shift; fi
 if [ "\$#" -gt 0 ]; then shift; fi
+case " \$* " in
+    *" --install-mode ab-slot "*) SOURCE_DIR="\$APP_ROOT/app" ;;
+esac
 
 "\$PYTHON" "\$APP_ROOT/tools/assemble.py"
 PATH="\$APP_ROOT/.venv/bin:\$PATH" "\$PYTHON" \
     "\$APP_ROOT/\$SUBMODULE/local_builder.py" \
-    --source-dir "\$APP_ROOT/device" \
+    --source-dir "\$SOURCE_DIR" \
     --output-dir "\$APP_ROOT/build" \
     --model "\$MODEL" \
     --version "\$VERSION" \

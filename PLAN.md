@@ -272,13 +272,13 @@ Use a small schema such as:
 
 #### 3.3 Create the stable launcher
 
-- [ ] Keep root `boot.py` small: hardware/bootstrap setup only.
+- [x] Keep root `boot.py` small: hardware/bootstrap setup only. (Stable update orchestration remains here during A/B migration.)
 - [x] Keep root `main.py` small: choose a slot, adjust `sys.path`, import `app_entry`, and run it.
 - [x] Avoid importing the slot entry as `main` to prevent collision with the root launcher.
 - [x] Increment and persist candidate attempt count before importing a pending slot.
 - [x] Catch candidate import/startup exceptions and return to the previous slot.
 - [ ] Record reset cause where supported to aid rollback diagnostics.
-- [ ] Ensure a corrupt candidate cannot overwrite selector modules through ordinary releases.
+- [x] Ensure a corrupt candidate cannot overwrite selector modules through ordinary releases.
 
 #### 3.4 Install directly into the inactive slot
 
@@ -295,8 +295,8 @@ Use a small schema such as:
 #### 3.5 Candidate health confirmation
 
 - [x] Expose a tiny `confirm_running_slot()` API to the application.
-- [ ] Define minimum health as successful configuration load, manager creation, and stable event-loop operation for a short period.
-- [ ] Do not require Internet connectivity for health confirmation.
+- [x] Define minimum health as successful configuration load, manager creation, and stable event-loop operation for a short period.
+- [x] Do not require Internet connectivity for health confirmation.
 - [x] Confirm by atomically promoting `pending` to `active` and clearing candidate attempts.
 - [x] Preserve the old slot until confirmation succeeds.
 - [ ] Log candidate version, attempt number, confirmation, and rollback.
