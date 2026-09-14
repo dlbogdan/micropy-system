@@ -264,11 +264,11 @@ Use a small schema such as:
 }
 ```
 
-- [ ] Implement a dedicated OTA state module with validation and defaults.
-- [ ] Write `ota-state.new`, close it, and rename it over the live state.
-- [ ] Keep `ota-state.bak` or two generation-numbered records for recovery from a torn state write.
-- [ ] Define deterministic fallback when both state records are invalid.
-- [ ] Never infer active slot solely from directory existence.
+- [x] Implement a dedicated OTA state module with validation and defaults.
+- [x] Write `ota-state.new`, close it, and rename it over the live state.
+- [x] Keep `ota-state.bak` or two generation-numbered records for recovery from a torn state write.
+- [x] Define deterministic fallback when both state records are invalid.
+- [x] Never infer active slot solely from directory existence.
 
 #### 3.3 Create the stable launcher
 
