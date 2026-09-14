@@ -1,6 +1,7 @@
 """Stable root launcher installed as /main.py by A/B project assembly."""
 
 import uasyncio as asyncio
+import machine
 
 from lib.coresys.slot_manager import (
     activate_slot_path,
@@ -9,7 +10,17 @@ from lib.coresys.slot_manager import (
 )
 
 
+def output_reset_cause():
+    try:
+        cause = machine.reset_cause()
+    except (AttributeError, OSError):
+        cause = "unavailable"
+    print("A/B launcher reset cause: %s" % cause)
+    return cause
+
+
 async def launch():
+    output_reset_cause()
     slot, is_candidate, state = prepare_slot_boot()
     activate_slot_path(slot)
     try:
@@ -22,7 +33,6 @@ async def launch():
         rollback_candidate(state)
         # A clean reboot prevents modules partially imported by the failed
         # candidate from contaminating the previous slot process.
-        import machine
         machine.reset()
 
 

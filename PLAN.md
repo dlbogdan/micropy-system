@@ -277,7 +277,7 @@ Use a small schema such as:
 - [x] Avoid importing the slot entry as `main` to prevent collision with the root launcher.
 - [x] Increment and persist candidate attempt count before importing a pending slot.
 - [x] Catch candidate import/startup exceptions and return to the previous slot.
-- [ ] Record reset cause where supported to aid rollback diagnostics.
+- [x] Record reset cause where supported to aid rollback diagnostics.
 - [x] Ensure a corrupt candidate cannot overwrite selector modules through ordinary releases.
 
 #### 3.4 Install directly into the inactive slot
