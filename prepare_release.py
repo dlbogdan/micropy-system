@@ -3,7 +3,7 @@ import os
 import zlib
 import hashlib
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 import subprocess
 import tempfile
 
@@ -12,6 +12,7 @@ OUTPUT_IMAGE = 'release/firmware.tar.zlib'
 METADATA_FILE = 'release/image-info.json'
 DEVICE_TYPE = 'pico'  # Or whatever your target is
 HASH_FILENAME = 'integrity.json'  # Name of the hash file to include in the archive
+FRAMEWORK_BUILD_FILENAME = 'framework-build.txt'
 
 def compile_to_mpy(source_dir, temp_dir):
     """Compile all .py files to .mpy using mpy-cross."""
@@ -60,7 +61,7 @@ def create_hash_file(source_dir, temp_dir, hash_file_path):
     # Add hashes for all compiled .mpy files
     for root, _, files in os.walk(temp_dir):
         for file in files:
-            if file.endswith(".mpy") or file == "version.txt":
+            if file.endswith(".mpy") or file == FRAMEWORK_BUILD_FILENAME:
                 full_path = os.path.join(root, file)
                 arcname = os.path.relpath(full_path, start=temp_dir)
                 file_hash = calculate_file_sha256(full_path)
@@ -91,9 +92,9 @@ def create_tar_archive(source_dir, tar_path, temp_dir):
                 tar.add(os.path.join(source_dir, root_file), arcname=root_file)
                 print(f"Added {root_file} to archive as {root_file} at root level")
 
-        version_file = os.path.join(temp_dir, 'version.txt')
-        if os.path.exists(version_file):
-            tar.add(version_file, arcname='version.txt')
+        framework_build_file = os.path.join(temp_dir, FRAMEWORK_BUILD_FILENAME)
+        if os.path.exists(framework_build_file):
+            tar.add(framework_build_file, arcname=FRAMEWORK_BUILD_FILENAME)
         
         # Then add all compiled .mpy files
         for root, _, files in os.walk(temp_dir):
@@ -121,19 +122,34 @@ def get_version():
     except Exception:
         return "unknown"
 
-def write_build_version(temp_dir, version):
-    """Create the device build string included in the release artifact."""
-    build_string = version[1:] if version.startswith('v') else version
-    version_path = os.path.join(temp_dir, 'version.txt')
-    with open(version_path, 'w') as version_file:
-        version_file.write(build_string + '\n')
-    return version_path
+def get_framework_build():
+    """Return the framework repository's exact Git tag/commit identity."""
+    try:
+        return subprocess.check_output(
+            ['git', 'describe', '--tags', '--always', '--dirty'],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+def get_build_date():
+    """Return the packaging date in an unambiguous UTC format."""
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+def write_framework_build(temp_dir, build_string=None, build_date=None):
+    """Create framework Git and build-date metadata for the release artifact."""
+    build_string = build_string or get_framework_build()
+    build_date = build_date or get_build_date()
+    build_path = os.path.join(temp_dir, FRAMEWORK_BUILD_FILENAME)
+    with open(build_path, 'w') as build_file:
+        build_file.write(build_string + ' built ' + build_date + '\n')
+    return build_path
 
 def main():
     version = get_version()
     # Create temporary directory for compiled files
     with tempfile.TemporaryDirectory() as temp_dir:
-        write_build_version(temp_dir, version)
+        write_framework_build(temp_dir)
         print(f"Compiling Python files to .mpy in temporary directory: {temp_dir}")
         compile_to_mpy(SOURCE_DIR, temp_dir)
         

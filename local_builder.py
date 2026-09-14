@@ -19,6 +19,7 @@ import argparse
 SOURCE_DIR = 'src'
 BUILD_DIR = 'build'
 HASH_FILENAME = 'integrity.json'  # Name of the hash file included in the archive
+FRAMEWORK_BUILD_FILENAME = 'framework-build.txt'
 DEVICE_TYPE = 'pico'  # Target device type
 
 # Default values
@@ -81,7 +82,7 @@ def create_hash_file(source_dir, temp_dir, hash_file_path):
     # Add hashes for generated build metadata and all compiled .mpy files.
     for root, _, files in os.walk(temp_dir):
         for file in files:
-            if file.endswith(".mpy") or file == "version.txt":
+            if file.endswith(".mpy") or file == FRAMEWORK_BUILD_FILENAME:
                 full_path = os.path.join(root, file)
                 arcname = os.path.relpath(full_path, start=temp_dir)
                 # Convert Windows backslashes to forward slashes for web compatibility
@@ -116,10 +117,10 @@ def create_tar_archive(source_dir, tar_path, temp_dir):
                 tar.add(os.path.join(source_dir, root_file), arcname=root_file)
                 print(f"Added {root_file} to archive as {root_file} at root level")
 
-        version_file = os.path.join(temp_dir, 'version.txt')
-        if os.path.exists(version_file):
-            tar.add(version_file, arcname='version.txt')
-            print("Added version.txt to archive")
+        framework_build_file = os.path.join(temp_dir, FRAMEWORK_BUILD_FILENAME)
+        if os.path.exists(framework_build_file):
+            tar.add(framework_build_file, arcname=FRAMEWORK_BUILD_FILENAME)
+            print(f"Added {FRAMEWORK_BUILD_FILENAME} to archive")
         
         # Then add all compiled .mpy files
         for root, _, files in os.walk(temp_dir):
@@ -179,13 +180,28 @@ def get_version(version_arg=None, source_dir=SOURCE_DIR):
         print(f"Warning: Could not get version from git, using default: {DEFAULT_VERSION}")
         return f"v{DEFAULT_VERSION}"
 
-def write_build_version(temp_dir, version):
-    """Create the device build string included in the release artifact."""
-    build_string = version[1:] if version.startswith('v') else version
-    version_path = os.path.join(temp_dir, 'version.txt')
-    with open(version_path, 'w') as version_file:
-        version_file.write(build_string + '\n')
-    return version_path
+def get_framework_build():
+    """Return the framework repository's exact Git tag/commit identity."""
+    try:
+        return subprocess.check_output(
+            ['git', 'describe', '--tags', '--always', '--dirty'],
+            stderr=subprocess.DEVNULL,
+        ).decode().strip()
+    except Exception:
+        return "unknown"
+
+def get_build_date():
+    """Return the packaging date in an unambiguous UTC format."""
+    return datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+def write_framework_build(temp_dir, build_string=None, build_date=None):
+    """Create framework Git and build-date metadata for the release artifact."""
+    build_string = build_string or get_framework_build()
+    build_date = build_date or get_build_date()
+    build_path = os.path.join(temp_dir, FRAMEWORK_BUILD_FILENAME)
+    with open(build_path, 'w') as build_file:
+        build_file.write(build_string + ' built ' + build_date + '\n')
+    return build_path
 
 def create_metadata(compressed_data, version, repo_name, server_port,
                     device_model, firmware_filename, build_dir):
@@ -301,7 +317,9 @@ def main():
     
     # Create temporary directory for compiled files
     with tempfile.TemporaryDirectory() as temp_dir:
-        write_build_version(temp_dir, version)
+        framework_build = get_framework_build()
+        framework_build_date = get_build_date()
+        write_framework_build(temp_dir, framework_build, framework_build_date)
         # Step 1: Compile Python files to .mpy
         compile_to_mpy(source_dir, temp_dir)
         
@@ -330,6 +348,7 @@ def main():
         print(f"Firmware: {output_image}")
         print(f"Metadata: {metadata_file}")
         print(f"Version: {version}")
+        print(f"Framework build: {framework_build} built {framework_build_date}")
         print(f"Local IP: {get_local_ip()}")
         print(f"Size: {len(compressed_data)} bytes")
 

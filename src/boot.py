@@ -10,16 +10,16 @@ from lib.coresys.manager_wifi import WiFiManager
 
 
 def output_build_string():
-    """Print the installed application build before boot initialization."""
+    """Print the packaged framework Git build before boot initialization."""
     build = "unknown"
     try:
-        with open('/version.txt', 'r') as version_file:
-            value = version_file.read().strip()
+        with open('/framework-build.txt', 'r') as build_file:
+            value = build_file.read().strip()
             if value:
                 build = value
     except OSError:
         pass
-    print("MicroPy System build: " + build)
+    print("MicroPy System framework build: " + build)
     return build
 
 
