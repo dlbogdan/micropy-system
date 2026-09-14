@@ -114,6 +114,100 @@ if config.is_file():
 print(f"Assembled device filesystem at {DEVICE}")
 EOF
 
+write_file tools/setup_build_env.sh <<EOF
+#!/bin/sh
+set -eu
+APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
+SUBMODULE="$SUBMODULE_PATH"
+
+python3 -m venv "\$APP_ROOT/.venv"
+"\$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
+"\$APP_ROOT/.venv/bin/python" -m pip install \
+    --requirement "\$APP_ROOT/\$SUBMODULE/requirements.txt"
+echo "Build environment is ready at \$APP_ROOT/.venv"
+EOF
+
+write_file tools/build_firmware.sh <<EOF
+#!/bin/sh
+set -eu
+APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
+SUBMODULE="$SUBMODULE_PATH"
+VERSION=\${1:-\$(cat "\$APP_ROOT/app/version.txt")}
+MODEL=\${2:-pico2-w-rp2350}
+PYTHON="\$APP_ROOT/.venv/bin/python"
+
+case "\$VERSION" in
+    *[!0-9.]*|*.*.*.*|.*|*.)
+        echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
+        exit 2
+        ;;
+esac
+if [ "\$(printf '%s' "\$VERSION" | awk -F. '{print NF}')" -ne 3 ]; then
+    echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
+    exit 2
+fi
+if [ ! -x "\$PYTHON" ]; then
+    echo "Error: build environment is missing. Run tools/setup_build_env.sh" >&2
+    exit 2
+fi
+
+"\$PYTHON" "\$APP_ROOT/tools/assemble.py"
+PATH="\$APP_ROOT/.venv/bin:\$PATH" "\$PYTHON" \
+    "\$APP_ROOT/\$SUBMODULE/local_builder.py" \
+    --source-dir "\$APP_ROOT/device" \
+    --output-dir "\$APP_ROOT/build" \
+    --model "\$MODEL" \
+    --version "\$VERSION"
+EOF
+
+write_file tools/release_github.sh <<'EOF'
+#!/bin/sh
+set -eu
+APP_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+VERSION=${1:-}
+
+if [ -z "$VERSION" ]; then
+    echo "Usage: tools/release_github.sh MAJOR.MINOR.PATCH" >&2
+    exit 2
+fi
+VERSION=${VERSION#v}
+case "$VERSION" in
+    *[!0-9.]*|*.*.*.*|.*|*.)
+        echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
+        exit 2
+        ;;
+esac
+if [ "$(printf '%s' "$VERSION" | awk -F. '{print NF}')" -ne 3 ]; then
+    echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
+    exit 2
+fi
+TAG="v$VERSION"
+
+if [ -n "$(git -C "$APP_ROOT" status --porcelain)" ]; then
+    echo "Error: commit or stash application changes before releasing." >&2
+    exit 1
+fi
+git -C "$APP_ROOT" fetch origin --tags
+if git -C "$APP_ROOT" rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+    echo "Error: tag already exists: $TAG" >&2
+    exit 1
+fi
+
+BRANCH=$(git -C "$APP_ROOT" branch --show-current)
+if [ -z "$BRANCH" ]; then
+    echo "Error: cannot release from detached HEAD." >&2
+    exit 1
+fi
+git -C "$APP_ROOT" diff --quiet "origin/$BRANCH...HEAD" || {
+    echo "Error: local branch differs from origin/$BRANCH; push it first." >&2
+    exit 1
+}
+
+git -C "$APP_ROOT" tag -a "$TAG" -m "Firmware $TAG"
+git -C "$APP_ROOT" push origin "$TAG"
+echo "Pushed $TAG; GitHub Actions will build and publish the release."
+EOF
+
 write_file app/main.py <<'EOF'
 import uasyncio as asyncio
 from machine import Pin
@@ -220,9 +314,7 @@ jobs:
           echo "version=\${VERSION}" >> "\${GITHUB_OUTPUT}"
           echo "tag=\${TAG}" >> "\${GITHUB_OUTPUT}"
       - name: Assemble device tree
-        run: |
-          python tools/assemble.py
-          cp app/version.txt device/version.txt
+        run: python tools/assemble.py
       - name: Build firmware
         run: >-
           python "$SUBMODULE_PATH/local_builder.py"
@@ -242,11 +334,49 @@ jobs:
             --generate-notes
 EOF
 
+write_file README.md <<'EOF'
+# MicroPython application
+
+This application uses `micropy-system` as a pinned Git submodule.
+
+## Common commands
+
+```sh
+# One-time local toolchain setup
+tools/setup_build_env.sh
+
+# Assemble and build app/version.txt for Pico 2 W
+tools/build_firmware.sh
+
+# Build an explicit version/model locally
+tools/build_firmware.sh 1.0.1 pico2-w-rp2350
+
+# Update the framework checkout; review and commit its pointer afterward
+tools/update_framework.sh
+
+# Trigger the GitHub release workflow by pushing a clean annotated tag
+tools/release_github.sh 1.0.1
+```
+
+For a manual GitHub run, open **Actions → Build firmware release → Run
+workflow** and enter a semantic version. The release workflow also runs when a
+`vMAJOR.MINOR.PATCH` tag is pushed.
+
+For MicroPico deployment, copy `system-config.example.json` to the ignored
+`system-config.json`, edit it, run `python3 tools/assemble.py`, and configure
+MicroPico's sync folder as `device`.
+EOF
+
 for entry in '.vscode/' '.micropico' '.venv/' '__pycache__/' '*.pyc' 'device/' 'build/' 'release/' 'system-config.json'; do
     append_ignore "$entry"
 done
 
-chmod +x "$PROJECT_ROOT/tools/update_framework.sh" "$PROJECT_ROOT/tools/assemble.py"
+chmod +x \
+    "$PROJECT_ROOT/tools/update_framework.sh" \
+    "$PROJECT_ROOT/tools/assemble.py" \
+    "$PROJECT_ROOT/tools/setup_build_env.sh" \
+    "$PROJECT_ROOT/tools/build_firmware.sh" \
+    "$PROJECT_ROOT/tools/release_github.sh"
 
 echo
 echo "Project initialized at $PROJECT_ROOT"
