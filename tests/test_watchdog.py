@@ -96,6 +96,26 @@ class WatchdogTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
 
+    async def test_supervision_restarts_after_previous_event_loop_task_ended(self):
+        module, machine = load_module()
+        hardware_watchdog = mock.Mock()
+        machine.WDT.return_value = hardware_watchdog
+        owner = module.WatchdogOwner(
+            timeout_ms=8000, feed_interval_ms=2, confirmation_ms=20)
+
+        first_task = owner.start_supervision()
+        first_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await first_task
+        second_task = owner.start_supervision("b")
+        await asyncio.sleep(0)
+
+        self.assertIsNot(first_task, second_task)
+        machine.WDT.assert_called_once_with(timeout=8000)
+        second_task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await second_task
+
     async def test_feed_interval_must_be_less_than_timeout(self):
         module, _ = load_module()
         with self.assertRaises(ValueError):

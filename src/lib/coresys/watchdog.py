@@ -50,11 +50,16 @@ class WatchdogOwner:
 
     def start_supervision(self, candidate_slot=None):
         """Start the sole WDT feed task, optionally with a candidate deadline."""
-        if self._watchdog is not None:
-            return self._feed_task
         self._candidate_slot = candidate_slot
-        self._watchdog = machine.WDT(timeout=self.timeout_ms)
-        self._watchdog.feed()
+        if self._watchdog is None:
+            self._watchdog = machine.WDT(timeout=self.timeout_ms)
+            self._watchdog.feed()
+        elif self._feed_task is not None:
+            try:
+                if not self._feed_task.done():
+                    return self._feed_task
+            except AttributeError:
+                return self._feed_task
         self._feed_task = asyncio.create_task(self._feed_loop())
         return self._feed_task
 

@@ -8,6 +8,7 @@ from lib.coresys.manager_config import ConfigManager
 import lib.coresys.logger as logger
 from lib.coresys.manager_wifi import WiFiManager
 from lib.coresys.ota_state import load_state
+from lib.coresys.watchdog import watchdog_owner
 
 
 def output_build_string():
@@ -158,6 +159,9 @@ async def perform_firmware_update():
 
 async def boot_main():
     """Own the complete boot event-loop lifecycle."""
+    # A hardware watchdog remains enabled across RP-family watchdog resets.
+    # Feed it throughout boot, including potentially slow network OTA work.
+    watchdog_owner.start_supervision()
     try:
         await perform_firmware_update()
     finally:
