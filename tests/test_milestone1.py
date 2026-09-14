@@ -125,6 +125,37 @@ class FirmwareUpdaterTests(unittest.TestCase):
             self.assertEqual(self.updater.begin_apply_attempt(), 1)
             self.assertTrue(Path(self.updater.update_flag_path).exists())
 
+    def test_rejected_release_can_be_cleared_explicitly(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.updater.update_flag_path = str(Path(directory) / "state")
+            for _ in range(self.updater.max_failure_attempts):
+                self.updater._begin_release_attempt("1.2.3")
+            self.assertTrue(self.updater._is_release_rejected("1.2.3"))
+            self.assertTrue(self.updater.clear_rejected_release("1.2.3"))
+            self.assertFalse(self.updater._is_release_rejected("1.2.3"))
+
+    def test_clear_rejected_release_does_not_clear_another_version(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.updater.update_flag_path = str(Path(directory) / "state")
+            self.updater._begin_release_attempt("1.2.3")
+            self.assertFalse(self.updater.clear_rejected_release("1.2.4"))
+            self.assertTrue(Path(self.updater.update_flag_path).exists())
+
+    def test_download_diagnostics_are_separate_from_apply_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.updater.update_flag_path = str(Path(directory) / "apply-state")
+            self.updater.download_diagnostics_path = str(Path(directory) / "download-state")
+            self.updater._record_download_diagnostic("1.2.3", False, "timeout")
+            diagnostic = json.loads(Path(self.updater.download_diagnostics_path).read_text())
+            self.assertEqual(diagnostic["consecutive_failures"], 1)
+            self.assertEqual(diagnostic["error"], "timeout")
+            self.assertFalse(Path(self.updater.update_flag_path).exists())
+
+            self.updater._record_download_diagnostic("1.2.3", True)
+            diagnostic = json.loads(Path(self.updater.download_diagnostics_path).read_text())
+            self.assertEqual(diagnostic["consecutive_failures"], 0)
+            self.assertTrue(diagnostic["succeeded"])
+
     def test_downloaded_artifact_hash_and_size_are_verified(self):
         payload = b"firmware"
         release = {
@@ -168,6 +199,23 @@ class FirmwareUpdaterTests(unittest.TestCase):
             self.updater.update_flag_path = str(Path(directory) / "state")
             self.assertEqual(self.updater.should_attempt_update(), (True, "Automatic update checks enabled"))
             self.assertFalse(Path(self.updater.update_flag_path).exists())
+
+    def test_type_change_removes_destination_before_rename(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source_root = Path(directory) / "source"
+            destination_root = Path(directory) / "destination"
+            source_root.mkdir()
+            destination_root.mkdir()
+            (source_root / "item").write_text("replacement")
+            (destination_root / "item").mkdir()
+            (destination_root / "item" / "old").write_text("old")
+
+            result = asyncio.run(self.updater._merge_directories_recursive(
+                str(source_root), str(destination_root)))
+
+            self.assertTrue(result)
+            self.assertTrue((destination_root / "item").is_file())
+            self.assertEqual((destination_root / "item").read_text(), "replacement")
 
 
 if __name__ == "__main__":

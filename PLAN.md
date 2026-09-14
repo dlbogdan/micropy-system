@@ -139,11 +139,11 @@ Replace the current boot-check counter with release-specific state.
 
 - [x] Do not increment failure counters merely because the device checked for updates.
 - [x] Do not count offline boot, DNS failure, TLS failure, metadata-server outage, or download failure as an apply failure.
-- [ ] Track download diagnostics separately from installation and candidate-boot failures.
+- [x] Track download diagnostics separately from installation and candidate-boot failures.
 - [x] Associate apply counters with a version so a new release is not blocked by failures from an old release.
 - [x] Persist a quarantine/rejected version when maximum apply attempts are reached.
 - [x] Permit a newer release even if the previous release was rejected.
-- [ ] Add an explicit method to clear a rejected release during development.
+- [x] Add an explicit method to clear a rejected release during development.
 
 #### 1.4 Correct boot orchestration
 
@@ -163,11 +163,11 @@ This is transitional and will be retired after A/B slots are proven.
 - [x] Build the new backup under `/backup.new`.
 - [x] Promote `/backup.new` only after every copy succeeds.
 - [x] Preserve the previous valid backup until the new one is complete and restore it if promotion fails.
-- [ ] Exclude update staging, logs, state files, and volatile data explicitly.
+- [x] Exclude update staging, logs, state files, and volatile data explicitly.
 - [x] Check logical source bytes against free space before backup.
-- [ ] Abort before creating `/__applying` if backup is incomplete.
-- [ ] Handle file/directory type changes explicitly rather than relying on rename-overwrite behavior.
-- [ ] Add a deletion manifest or document that deletions are unsupported during this milestone.
+- [x] Abort before creating `/__applying` if backup is incomplete.
+- [x] Handle file/directory type changes explicitly rather than relying on rename-overwrite behavior.
+- [x] Document that deletions are unsupported during this milestone; stale paths remain until A/B slot replacement supersedes root merge.
 
 #### Acceptance criteria
 

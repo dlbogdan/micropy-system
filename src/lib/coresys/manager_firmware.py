@@ -78,6 +78,7 @@ class FirmwareUpdater:
         # Flag file paths
         self.update_flag_path = '/__updating'
         self.applying_flag_path = '/__applying'
+        self.download_diagnostics_path = '/ota-download-diagnostics.json'
         
         self._initialized = True
 
@@ -404,6 +405,36 @@ class FirmwareUpdater:
             pass
         uos.rename(temporary_path, self.update_flag_path)
 
+    def _write_json_atomic(self, path, value):
+        """Write a small JSON record without exposing a partially written file."""
+        temporary_path = path + '.new'
+        with open(temporary_path, 'w') as f:
+            ujson.dump(value, f)
+        try:
+            uos.remove(path)
+        except OSError:
+            pass
+        uos.rename(temporary_path, path)
+
+    def _record_download_diagnostic(self, version, succeeded, error=None):
+        """Persist transport diagnostics independently from apply attempts."""
+        state = {}
+        try:
+            with open(self.download_diagnostics_path, 'r') as f:
+                loaded = ujson.load(f)
+                if isinstance(loaded, dict):
+                    state = loaded
+        except (OSError, ValueError, TypeError):
+            pass
+
+        failures = 0 if succeeded else int(state.get("consecutive_failures", 0)) + 1
+        self._write_json_atomic(self.download_diagnostics_path, {
+            "version": version,
+            "succeeded": bool(succeeded),
+            "consecutive_failures": failures,
+            "error": None if succeeded else str(error or "unknown download error"),
+        })
+
     def _begin_release_attempt(self, version):
         state = self._read_update_state()
         attempts = state.get("attempts", 0) if state.get("version") == version else 0
@@ -423,6 +454,15 @@ class FirmwareUpdater:
             state.get("version") == version
             and state.get("attempts", 0) >= self.max_failure_attempts
         )
+
+    def clear_rejected_release(self, version=None):
+        """Clear rejected/apply-attempt state, optionally only for one version."""
+        state = self._read_update_state()
+        if version is not None and state.get("version") != version:
+            return False
+        self._remove_file_if_exists(self.update_flag_path)
+        self._remove_file_if_exists(self.update_flag_path + '.new')
+        return bool(state)
     
     def _cleanup_success_flags(self):
         """Internal method to clean up flags after successful operations"""
@@ -659,10 +699,12 @@ class FirmwareUpdater:
         success = await self._download_firmware(latest_release)
         if not success:
             self.pending_update_version = None
+            self._record_download_diagnostic(latest_version_str, False, self.error)
             self._notify_progress("downloading", 100, "Download failed", error=self.error)
             return False
             
         logger.info(f"Firmware downloaded successfully: {latest_release.get('filename')}", log_to_file=True)
+        self._record_download_diagnostic(latest_version_str, True)
         self._notify_progress("downloading", 100, f"Download completed: {latest_release.get('filename')}")
         return True
         
@@ -1107,7 +1149,14 @@ class FirmwareUpdater:
             "/update.tmp.tar",
             "/log.txt",
             "/__updating",
-            "/__applying"
+            "/__updating.new",
+            "/__applying",
+            self.download_diagnostics_path,
+            self.download_diagnostics_path + ".new",
+            "/ota-state.json",
+            "/ota-state.new",
+            "/ota-state.bak",
+            "/staging"
         ]
         try:
             await self._remove_path_if_exists(backup_new)
@@ -1137,10 +1186,18 @@ class FirmwareUpdater:
                 except Exception as e_copy:
                     self.error = f"Backup error for {source_path} to {dest_path}: {str(e_copy)}"
                     logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
+                    await self._remove_path_if_exists(backup_new)
                     return False # Abort backup on first error
                 await asyncio.sleep(0) # Yield between top-level items
             
             await self._remove_path_if_exists(backup_old)
+
+            backup_bytes = self._directory_size(backup_new)
+            if backup_bytes != required_bytes:
+                self.error = f"Incomplete backup: expected {required_bytes} bytes, copied {backup_bytes}"
+                await self._remove_path_if_exists(backup_new)
+                return False
+
             had_previous_backup = self._path_exists(backup_dir)
             if had_previous_backup:
                 uos.rename(backup_dir, backup_old)
@@ -1260,8 +1317,10 @@ class FirmwareUpdater:
                     uos.rename(source_item, dest_item)
                     
                 else:
-                    # Type mismatch (file->dir or dir->file) - atomic replacement
-                    logger.info(f"Type mismatch atomic replacement: {source_item} -> {dest_item}", log_to_file=True)
+                    # MicroPython rename-overwrite behavior differs by source and
+                    # destination type, so remove the conflicting destination first.
+                    logger.info(f"Explicit type replacement: {source_item} -> {dest_item}", log_to_file=True)
+                    await self._remove_path_if_exists(dest_item)
                     uos.rename(source_item, dest_item)
                 
                 await asyncio.sleep(0)  # Yield control
