@@ -138,17 +138,24 @@ def normalize_deletion_paths(deletion_paths, archived_paths=None):
             raise ValueError("deletion manifest exceeds path-count limit")
     return normalized
 
-def create_hash_file(source_dir, temp_dir, hash_file_path, deletion_paths=None):
+def release_root_files(install_mode):
+    if install_mode == 'ab-slot':
+        return [('main.py', 'app_entry.py')]
+    return [('boot.py', 'boot.py'), ('main.py', 'main.py')]
+
+
+def create_hash_file(source_dir, temp_dir, hash_file_path, deletion_paths=None,
+                     install_mode='root-merge'):
     """Create a hash file with SHA256 sums of all files to be included in the archive."""
     hash_data = {}
     
     # Add hashes for boot.py and main.py if they exist
-    for root_file in ['boot.py', 'main.py']:
-        root_file_path = os.path.join(source_dir, root_file)
+    for source_name, archive_name in release_root_files(install_mode):
+        root_file_path = os.path.join(source_dir, source_name)
         if os.path.exists(root_file_path):
             file_hash = calculate_file_sha256(root_file_path)
-            hash_data[root_file] = file_hash
-            print(f"Added hash for {root_file}: {file_hash}")
+            hash_data[archive_name] = file_hash
+            print(f"Added hash for {archive_name}: {file_hash}")
     
     # Add hashes for generated build metadata and all compiled .mpy files.
     for root, _, files in os.walk(temp_dir):
@@ -188,14 +195,16 @@ def validate_module_uniqueness(temp_dir):
                 raise ValueError(f"module is packaged as both {previous} and {path}")
             modules[stem] = path
 
-def create_tar_archive(source_dir, tar_path, temp_dir, deletion_paths=None):
+def create_tar_archive(source_dir, tar_path, temp_dir, deletion_paths=None,
+                       install_mode='root-merge'):
     """Create tar archive from compiled .mpy files and root py files."""
     print(f"Creating TAR archive: {tar_path}")
     
     validate_module_uniqueness(temp_dir)
     # First create the hash file in the temp directory
     hash_file_path = os.path.join(temp_dir, HASH_FILENAME)
-    create_hash_file(source_dir, temp_dir, hash_file_path, deletion_paths)
+    create_hash_file(
+        source_dir, temp_dir, hash_file_path, deletion_paths, install_mode)
     
     # USTAR is the complete on-device contract. Python's default PAX format can
     # inject hidden extended-header entries (././@PaxHeader), which the strict
@@ -206,10 +215,10 @@ def create_tar_archive(source_dir, tar_path, temp_dir, deletion_paths=None):
         print(f"Added {HASH_FILENAME} to archive as the first file")
         
         # Then add boot.py and main.py from root if they exist
-        for root_file in ['boot.py', 'main.py']:
-            if os.path.exists(os.path.join(source_dir, root_file)):
-                tar.add(os.path.join(source_dir, root_file), arcname=root_file)
-                print(f"Added {root_file} to archive as {root_file} at root level")
+        for source_name, archive_name in release_root_files(install_mode):
+            if os.path.exists(os.path.join(source_dir, source_name)):
+                tar.add(os.path.join(source_dir, source_name), arcname=archive_name)
+                print(f"Added {source_name} to archive as {archive_name}")
 
         framework_build_file = os.path.join(temp_dir, FRAMEWORK_BUILD_FILENAME)
         if os.path.exists(framework_build_file):
@@ -358,7 +367,8 @@ def write_framework_build(temp_dir, build_string=None, build_date=None):
 
 def create_metadata(compressed_path, version, repo_name, server_port,
                     device_model, firmware_filename, build_dir,
-                    output_mode='direct-server', module_format='mpy'):
+                    output_mode='direct-server', module_format='mpy',
+                    install_mode='root-merge', uncompressed_size=None):
     """Create GitHub-like metadata JSON file."""
     sha256 = calculate_file_sha256(compressed_path)
     compressed_size = os.path.getsize(compressed_path)
@@ -405,6 +415,8 @@ def create_metadata(compressed_path, version, repo_name, server_port,
                 "mpy_sub_version": MPY_SUB_VERSION,
                 "mpy_arch": MODEL_ARCHITECTURES[device_model],
                 "module_format": module_format,
+                "install_mode": install_mode,
+                "uncompressed_size": uncompressed_size,
                 "download_count": 0,
                 "created_at": timestamp,
                 "updated_at": timestamp,
@@ -431,6 +443,8 @@ def create_metadata(compressed_path, version, repo_name, server_port,
     image_info["mpy_sub_version"] = MPY_SUB_VERSION
     image_info["mpy_arch"] = MODEL_ARCHITECTURES[device_model]
     image_info["module_format"] = module_format
+    image_info["install_mode"] = install_mode
+    image_info["uncompressed_size"] = uncompressed_size
     image_info["asset"] = firmware_filename
 
     # This compact manifest is suitable as a GitHub release sidecar and is
@@ -479,8 +493,15 @@ def main(argv=None):
         '--delete', action='append', default=[], metavar='PATH',
         help='Delete one application-relative path before merging the update; repeat as needed',
     )
+    parser.add_argument(
+        '--install-mode', choices=['root-merge', 'ab-slot'],
+        default='root-merge',
+        help='Build a transitional root merge or an application-only A/B slot image',
+    )
     
     args = parser.parse_args(argv)
+    if args.install_mode == 'ab-slot' and args.delete:
+        parser.error('--delete is not used by A/B slot images; inactive slots are replaced')
     source_dir = os.path.abspath(args.source_dir)
     output_dir = os.path.abspath(args.output_dir)
     if not os.path.isdir(source_dir):
@@ -515,8 +536,10 @@ def main(argv=None):
         
         # Step 2: Create temporary tar archive
         temp_tar = os.path.join(output_dir, 'temp_firmware.tar')
-        create_tar_archive(source_dir, temp_tar, temp_dir, args.delete)
+        create_tar_archive(
+            source_dir, temp_tar, temp_dir, args.delete, args.install_mode)
         validate_tar_archive(temp_tar)
+        uncompressed_size = os.path.getsize(temp_tar)
         
         # Step 3: Compress the tar file
         compressed_size = compress_zlib(temp_tar, output_image)
@@ -525,7 +548,7 @@ def main(argv=None):
         metadata = create_metadata(
             output_image, version, args.repo, args.port, args.model,
             firmware_filename, output_dir, args.output_mode,
-            args.module_format)
+            args.module_format, args.install_mode, uncompressed_size)
         
         # Direct-server transport consumes GitHub-shaped metadata.json.
         # GitHub transport receives equivalent release metadata from its API;

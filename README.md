@@ -188,6 +188,15 @@ Deletion entries cannot target archive metadata or the exact path of a packaged
 file. This transitional mechanism will be retired when normal updates replace an
 inactive A/B application slot instead of merging into the active root.
 
+For A/B application releases, build an application-only image. The application
+source `main.py` is packaged as `app_entry.py`; stable root launchers and OTA
+infrastructure are excluded from normal slot releases:
+
+```sh
+python local_builder.py --source-dir app --output-dir build \
+  --model pico2-w-rp2350 --version 2.0.0 --install-mode ab-slot
+```
+
 Firmware updates should be packaged as TAR archives with ZLIB compression, containing all files to be updated.
 
 Local builds must select a target board because Pico W and Pico 2 W releases

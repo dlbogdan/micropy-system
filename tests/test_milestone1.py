@@ -40,6 +40,10 @@ def load_firmware_module():
     sys.modules["lib"] = types.ModuleType("lib")
     sys.modules["lib.coresys"] = types.ModuleType("lib.coresys")
     sys.modules["lib.coresys.logger"] = logger
+    ota_state = types.ModuleType("lib.coresys.ota_state")
+    ota_state.load_state = lambda: {}
+    ota_state.write_state = lambda state: state
+    sys.modules["lib.coresys.ota_state"] = ota_state
     sys.modules["uasyncio"] = asyncio
 
     spec = importlib.util.spec_from_file_location(
@@ -180,6 +184,22 @@ class FirmwareUpdaterTests(unittest.TestCase):
                 "mpy_arch": None,
             }), "1.2.3")
         self.assertIsNotNone(normalized)
+
+    def test_ab_release_requires_projected_uncompressed_size(self):
+        result = self.updater._normalize_release(self.release(asset={
+            "install_mode": "ab-slot",
+            "uncompressed_size": None,
+        }), "1.2.3")
+        self.assertIsNone(result)
+        self.assertIn("uncompressed size", self.updater.error)
+
+    def test_ab_release_metadata_is_normalized(self):
+        result = self.updater._normalize_release(self.release(asset={
+            "install_mode": "ab-slot",
+            "uncompressed_size": 4096,
+        }), "1.2.3")
+        self.assertEqual(result["install_mode"], "ab-slot")
+        self.assertEqual(result["uncompressed_size"], 4096)
 
     def test_truncated_body_is_rejected_and_partial_file_removed(self):
         with tempfile.TemporaryDirectory() as directory:

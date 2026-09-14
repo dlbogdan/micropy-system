@@ -5,6 +5,7 @@ import ujson
 import uos
 import deflate
 import utarfile
+from lib.coresys.ota_state import load_state, write_state
 import machine
 import binascii
 import lib.coresys.logger as logger
@@ -87,6 +88,8 @@ class FirmwareUpdater:
         self.download_started = False
         self.firmware_download_path = '/update.tar.zlib'
         self.pending_update_version = None
+        self.pending_install_mode = "root-merge"
+        self.pending_uncompressed_size = None
         self.backup_dir = "/backup"
         self.hash_sums = {}
         
@@ -584,6 +587,8 @@ class FirmwareUpdater:
             "mpy_sub_version": selected_asset.get("mpy_sub_version") or latest_release.get("mpy_sub_version"),
             "mpy_arch": selected_asset.get("mpy_arch") or latest_release.get("mpy_arch"),
             "module_format": selected_asset.get("module_format") or latest_release.get("module_format") or "mpy",
+            "install_mode": selected_asset.get("install_mode") or latest_release.get("install_mode") or "root-merge",
+            "uncompressed_size": selected_asset.get("uncompressed_size") or latest_release.get("uncompressed_size"),
         }
         if normalized["model"] is None and normalized["filename"].startswith(self.device_model + "-"):
             normalized["model"] = self.device_model
@@ -612,6 +617,12 @@ class FirmwareUpdater:
             if self.mpy_arch and normalized["mpy_arch"] != self.mpy_arch:
                 self.error = f"Release MPY architecture {normalized['mpy_arch']} does not match {self.mpy_arch}"
                 return None
+        if normalized["install_mode"] not in ("root-merge", "ab-slot"):
+            self.error = "Release has an unsupported install mode"
+            return None
+        if normalized["install_mode"] == "ab-slot" and not normalized["uncompressed_size"]:
+            self.error = "A/B release is missing uncompressed size"
+            return None
         return normalized
     
     def _compare_versions(self, latest_version_str):
@@ -732,6 +743,8 @@ class FirmwareUpdater:
         latest_version_str = latest_release.get("version", "0.0.0")
         
         self.pending_update_version = latest_version_str
+        self.pending_install_mode = latest_release.get("install_mode", "root-merge")
+        self.pending_uncompressed_size = latest_release.get("uncompressed_size")
         self._notify_progress("downloading", 5, f"Preparing to download version {latest_version_str}")
 
         # Download firmware
@@ -964,7 +977,7 @@ class FirmwareUpdater:
             logger.error(f"FirmwareUpdater: {errmsg_entry}", log_to_file=True)
             return False, True  # not processed, error
     
-    async def _extract_firmware(self, tar_path, extract_to_dir):
+    async def _extract_firmware(self, tar_path, extract_to_dir, fileobj=None):
         """Extract the tar file to the specified directory."""
         logger.info(f"Extracting {tar_path} to {extract_to_dir}...", log_to_file=True)
         
@@ -983,7 +996,7 @@ class FirmwareUpdater:
             return False
         
         try:
-            tar = utarfile.TarFile(name=tar_path)
+            tar = utarfile.TarFile(name=tar_path, fileobj=fileobj)
             
             # Reset hash_sums before beginning extraction
             self.hash_sums = {}
@@ -1052,6 +1065,51 @@ class FirmwareUpdater:
         logger.info(f"Firmware successfully extracted to {extract_to_dir}.", log_to_file=True)
         return True
 
+    async def _install_inactive_slot(self):
+        """Stream and verify an application image into only the inactive slot."""
+        state = load_state()
+        inactive = "b" if state["active"] == "a" else "a"
+        destination = "/apps/" + inactive
+        required = int(self.pending_uncompressed_size or 0)
+        reclaimable = self._directory_size(destination)
+        free = uos.statvfs('/')[0] * uos.statvfs('/')[3]
+        if free + reclaimable < required:
+            self.error = "Insufficient space for inactive slot: need %s, have %s" % (
+                required, free + reclaimable)
+            return False
+
+        await self._remove_path_if_exists(destination)
+        self._mkdirs(destination)
+        compressed = None
+        stream = None
+        try:
+            compressed = open(self.firmware_download_path, "rb")
+            stream = deflate.DeflateIO(compressed, deflate.ZLIB, 0)
+            if not await self._extract_firmware(
+                    self.firmware_download_path, destination, fileobj=stream):
+                await self._remove_path_if_exists(destination)
+                return False
+        finally:
+            if stream:
+                stream.close()
+            if compressed:
+                compressed.close()
+
+        if not self._path_exists(destination + "/app_entry.py"):
+            self.error = "A/B image is missing app_entry.py"
+            await self._remove_path_if_exists(destination)
+            return False
+        state.update({
+            "pending": inactive,
+            "previous": state["active"],
+            "candidate_version": self.pending_update_version,
+            "candidate_attempts": 0,
+        })
+        write_state(state)
+        self._remove_file_if_exists(self.firmware_download_path)
+        self.pending_update_version = None
+        return True
+
     async def _apply_deletions(self):
         """Delete explicitly listed active paths after rollback state is durable."""
         for relative_path in self.deletion_paths:
@@ -1089,6 +1147,9 @@ class FirmwareUpdater:
         extract_to_dir = "/update"
         
         self._notify_progress("applying", 0, "Starting update application...")
+
+        if self.pending_install_mode == "ab-slot":
+            return await self._install_inactive_slot()
         
         try:
             if not self._check_update_archive_exists(compressed_file_path):

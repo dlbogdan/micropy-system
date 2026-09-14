@@ -1,6 +1,7 @@
 import importlib.util
 from pathlib import Path
 import sys
+import tempfile
 import types
 import unittest
 from unittest import mock
@@ -71,7 +72,10 @@ class SlotManagerTests(unittest.TestCase):
         })
         with mock.patch.object(self.module, "load_state", return_value=pending), \
                 mock.patch.object(self.module, "write_state", side_effect=lambda value: value):
-            confirmed = self.module.confirm_running_slot("b")
+            with tempfile.TemporaryDirectory() as directory:
+                version_path = str(Path(directory) / 'version.txt')
+                confirmed = self.module.confirm_running_slot("b", version_path)
+                self.assertEqual(Path(version_path).read_text(), '2.0.0')
         self.assertEqual(confirmed["active"], "b")
         self.assertIsNone(confirmed["pending"])
 

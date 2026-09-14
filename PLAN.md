@@ -282,23 +282,23 @@ Use a small schema such as:
 
 #### 3.4 Install directly into the inactive slot
 
-- [ ] Determine inactive slot from valid state.
-- [ ] Check projected free-space needs before deleting the inactive slot.
-- [ ] Remove and recreate only the inactive slot.
-- [ ] Feed `deflate.DeflateIO` directly to `utarfile.TarFile(fileobj=...)`.
-- [ ] Extract and verify into the inactive slot without creating `/update.tmp.tar` or `/update`.
-- [ ] Require `app_entry.py` and any declared framework modules.
-- [ ] Persist pending-slot state only after extraction and complete verification succeed.
-- [ ] Retain the downloaded artifact until pending state is safely persisted; then remove it.
-- [ ] Reboot only after every staging stream is closed and state is durable.
+- [x] Determine inactive slot from valid state.
+- [x] Check projected free-space needs before deleting the inactive slot.
+- [x] Remove and recreate only the inactive slot.
+- [x] Feed `deflate.DeflateIO` directly to `utarfile.TarFile(fileobj=...)`.
+- [x] Extract and verify into the inactive slot without creating `/update.tmp.tar` or `/update`.
+- [x] Require `app_entry.py` and any declared framework modules.
+- [x] Persist pending-slot state only after extraction and complete verification succeed.
+- [x] Retain the downloaded artifact until pending state is safely persisted; then remove it.
+- [x] Reboot only after every staging stream is closed and state is durable.
 
 #### 3.5 Candidate health confirmation
 
-- [ ] Expose a tiny `confirm_running_slot()` API to the application.
+- [x] Expose a tiny `confirm_running_slot()` API to the application.
 - [ ] Define minimum health as successful configuration load, manager creation, and stable event-loop operation for a short period.
 - [ ] Do not require Internet connectivity for health confirmation.
-- [ ] Confirm by atomically promoting `pending` to `active` and clearing candidate attempts.
-- [ ] Preserve the old slot until confirmation succeeds.
+- [x] Confirm by atomically promoting `pending` to `active` and clearing candidate attempts.
+- [x] Preserve the old slot until confirmation succeeds.
 - [ ] Log candidate version, attempt number, confirmation, and rollback.
 
 #### 3.6 Rollback and watchdog

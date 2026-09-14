@@ -7,6 +7,7 @@ from lib.coresys.manager_firmware import FirmwareUpdater
 from lib.coresys.manager_config import ConfigManager
 import lib.coresys.logger as logger
 from lib.coresys.manager_wifi import WiFiManager
+from lib.coresys.ota_state import load_state
 
 
 def output_build_string():
@@ -98,6 +99,10 @@ async def perform_firmware_update():
     All flag management is handled automatically by FirmwareUpdater
     """
     logger.info("Boot: Firmware Update Check.", log_to_file=True)
+
+    if load_state()["pending"] is not None:
+        logger.info("Boot: Pending A/B candidate will run before another OTA check.", log_to_file=True)
+        return
 
     logger.info("Boot: Starting firmware updater...", log_to_file=True)
     updater = create_firmware_updater()

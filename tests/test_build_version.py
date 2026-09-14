@@ -215,6 +215,26 @@ class BuildVersionTests(unittest.TestCase):
             local_builder.create_tar_archive(str(source), str(archive), str(prepared))
             local_builder.validate_tar_archive(str(archive))
 
+    def test_ab_slot_archive_renames_main_and_excludes_stable_root(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            prepared = root / 'prepared'
+            source.mkdir()
+            prepared.mkdir()
+            (source / 'boot.py').write_text('stable boot\n')
+            (source / 'main.py').write_text('slot application\n')
+            archive = root / 'slot.tar'
+            local_builder.create_tar_archive(
+                str(source), str(archive), str(prepared),
+                install_mode='ab-slot')
+            local_builder.validate_tar_archive(str(archive))
+            with tarfile.open(archive) as release:
+                names = release.getnames()
+            self.assertIn('app_entry.py', names)
+            self.assertNotIn('main.py', names)
+            self.assertNotIn('boot.py', names)
+
     def test_server_requires_metadata_and_archive(self):
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, 'metadata.json'):
