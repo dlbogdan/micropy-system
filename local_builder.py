@@ -160,7 +160,8 @@ def create_hash_file(source_dir, temp_dir, hash_file_path, deletion_paths=None,
     # Add hashes for generated build metadata and all compiled .mpy files.
     for root, _, files in os.walk(temp_dir):
         for file in files:
-            if file.endswith((".mpy", ".py")) or file == FRAMEWORK_BUILD_FILENAME:
+            if (file.endswith((".mpy", ".py")) or
+                    (file == FRAMEWORK_BUILD_FILENAME and install_mode == 'root-merge')):
                 full_path = os.path.join(root, file)
                 arcname = os.path.relpath(full_path, start=temp_dir)
                 # Convert Windows backslashes to forward slashes for web compatibility
@@ -221,7 +222,7 @@ def create_tar_archive(source_dir, tar_path, temp_dir, deletion_paths=None,
                 print(f"Added {source_name} to archive as {archive_name}")
 
         framework_build_file = os.path.join(temp_dir, FRAMEWORK_BUILD_FILENAME)
-        if os.path.exists(framework_build_file):
+        if install_mode == 'root-merge' and os.path.exists(framework_build_file):
             tar.add(framework_build_file, arcname=FRAMEWORK_BUILD_FILENAME)
             print(f"Added {FRAMEWORK_BUILD_FILENAME} to archive")
         

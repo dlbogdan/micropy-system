@@ -234,6 +234,7 @@ class BuildVersionTests(unittest.TestCase):
             self.assertIn('app_entry.py', names)
             self.assertNotIn('main.py', names)
             self.assertNotIn('boot.py', names)
+            self.assertNotIn('framework-build.txt', names)
 
     def test_server_requires_metadata_and_archive(self):
         with tempfile.TemporaryDirectory() as directory:
