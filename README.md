@@ -167,6 +167,19 @@ must represent the final Pico filesystem layout, including root-level
 in the application repository while the packaging implementation remains in
 `micropy-system`.
 
+When this repository is installed at `vendor/micropy-system` as a Git
+submodule, initialize the surrounding application repository with:
+
+```sh
+vendor/micropy-system/tools/init_project.sh
+```
+
+The initializer never overwrites existing files. It creates an application
+overlay, deterministic device-tree assembler, framework-update helper,
+configuration template, ignore rules, and an application-owned GitHub Actions
+release workflow. Pass an explicit project path when running the initializer
+outside a submodule checkout.
+
 Release asset metadata includes the model, compressed size, SHA-256,
 MicroPython runtime version, and MPY format. The device validates these fields
 before decompressing the update.
