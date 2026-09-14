@@ -50,7 +50,10 @@ class FirmwareUpdater:
         self.runtime_version = runtime_version
         self.mpy_version = mpy_version
         self.mpy_sub_version = mpy_sub_version
-        self.mpy_arch = mpy_arch
+        self.mpy_arch = mpy_arch or {
+            "pico-w-rp2040": "armv6m",
+            "pico2-w-rp2350": "armv8m",
+        }.get(device_model)
         
         # Progress callback support
         self.progress_callback = progress_callback
