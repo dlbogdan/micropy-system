@@ -15,10 +15,9 @@ import tempfile
 import socket
 import argparse
 
-# Configuration
-SOURCE_DIR = 'src'  # Source directory containing Python files
-BUILD_DIR = 'build'  # Output directory for built firmware
-METADATA_FILE = os.path.join(BUILD_DIR, 'metadata.json')
+# Configuration defaults. Applications can override these through the CLI.
+SOURCE_DIR = 'src'
+BUILD_DIR = 'build'
 HASH_FILENAME = 'integrity.json'  # Name of the hash file included in the archive
 DEVICE_TYPE = 'pico'  # Target device type
 
@@ -141,14 +140,14 @@ def calculate_sha256(data):
     """Calculate SHA256 hash of binary data."""
     return hashlib.sha256(data).hexdigest()
 
-def get_version(version_arg=None):
+def get_version(version_arg=None, source_dir=SOURCE_DIR):
     """Get version from version.txt, git, or use provided/default version."""
     # If version explicitly provided as argument
     if version_arg:
         return version_arg
     
     # Try to read from version.txt in src directory
-    version_file = os.path.join(SOURCE_DIR, 'version.txt')
+    version_file = os.path.join(source_dir, 'version.txt')
     try:
         with open(version_file, 'r') as f:
             version = f.read().strip()
@@ -175,7 +174,8 @@ def get_version(version_arg=None):
         print(f"Warning: Could not get version from git, using default: {DEFAULT_VERSION}")
         return f"v{DEFAULT_VERSION}"
 
-def create_metadata(compressed_data, version, repo_name, server_port, device_model, firmware_filename):
+def create_metadata(compressed_data, version, repo_name, server_port,
+                    device_model, firmware_filename, build_dir):
     """Create GitHub-like metadata JSON file."""
     sha256 = calculate_sha256(compressed_data)
     timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -241,7 +241,7 @@ def create_metadata(compressed_data, version, repo_name, server_port, device_mod
     }
     
     # Save the image info separately (for reference, not used by the server)
-    image_info_path = os.path.join(BUILD_DIR, 'image-info.json')
+    image_info_path = os.path.join(build_dir, 'image-info.json')
     with open(image_info_path, 'w') as f:
         json.dump(image_info, f, indent=2)
     print(f"Created image metadata file: {image_info_path}")
@@ -263,41 +263,50 @@ def get_local_ip():
 def main():
     print("Starting local firmware builder")
     parser = argparse.ArgumentParser(description="Build firmware locally and prepare server files")
+    parser.add_argument('--source-dir', default=SOURCE_DIR, help=f'Assembled device filesystem to package (default: {SOURCE_DIR})')
+    parser.add_argument('--output-dir', default=BUILD_DIR, help=f'Directory for firmware and metadata outputs (default: {BUILD_DIR})')
     parser.add_argument('--version', type=str, help='Version to use for the firmware (default: auto from git)')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT, help=f'Port for the server URLs (default: {DEFAULT_PORT})')
     parser.add_argument('--repo', type=str, default=DEFAULT_REPO, help=f'Repository name (default: {DEFAULT_REPO})')
     parser.add_argument('--model', required=True, choices=['pico-w-rp2040', 'pico2-w-rp2350'], help='Target board model')
     
     args = parser.parse_args()
-    version = get_version(args.version)
+    source_dir = os.path.abspath(args.source_dir)
+    output_dir = os.path.abspath(args.output_dir)
+    if not os.path.isdir(source_dir):
+        parser.error(f"source directory does not exist: {source_dir}")
+
+    version = get_version(args.version, source_dir)
     firmware_filename = f"{args.model}-firmware.tar.zlib"
-    output_image = os.path.join(BUILD_DIR, firmware_filename)
+    output_image = os.path.join(output_dir, firmware_filename)
+    metadata_file = os.path.join(output_dir, 'metadata.json')
     
     print(f"=== Building firmware version {version} ===")
     
     # Ensure build directory exists
-    ensure_directory(BUILD_DIR)
+    ensure_directory(output_dir)
     
     # Create temporary directory for compiled files
     with tempfile.TemporaryDirectory() as temp_dir:
         # Step 1: Compile Python files to .mpy
-        compile_to_mpy(SOURCE_DIR, temp_dir)
+        compile_to_mpy(source_dir, temp_dir)
         
         # Step 2: Create temporary tar archive
-        temp_tar = os.path.join(BUILD_DIR, 'temp_firmware.tar')
-        create_tar_archive(SOURCE_DIR, temp_tar, temp_dir)
+        temp_tar = os.path.join(output_dir, 'temp_firmware.tar')
+        create_tar_archive(source_dir, temp_tar, temp_dir)
         
         # Step 3: Compress the tar file
         compressed_data = compress_zlib(temp_tar, output_image)
         
         # Step 4: Create GitHub-like metadata.json
         metadata = create_metadata(
-            compressed_data, version, args.repo, args.port, args.model, firmware_filename)
+            compressed_data, version, args.repo, args.port, args.model,
+            firmware_filename, output_dir)
         
         # Step 5: Write metadata.json file
-        with open(METADATA_FILE, 'w') as f:
+        with open(metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
-        print(f"Created metadata file: {METADATA_FILE}")
+        print(f"Created metadata file: {metadata_file}")
         
         # Clean up temporary tar file
         os.remove(temp_tar)
@@ -305,7 +314,7 @@ def main():
         
         print(f"\n=== Build complete ===")
         print(f"Firmware: {output_image}")
-        print(f"Metadata: {METADATA_FILE}")
+        print(f"Metadata: {metadata_file}")
         print(f"Version: {version}")
         print(f"Local IP: {get_local_ip()}")
         print(f"Size: {len(compressed_data)} bytes")

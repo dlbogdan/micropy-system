@@ -150,6 +150,23 @@ are separate assets:
 .venv/bin/python local_builder.py --model pico2-w-rp2350 --version 1.0.1
 ```
 
+Application repositories can invoke the same builder through a pinned Git
+submodule and package an assembled device tree without copying the builder:
+
+```sh
+python vendor/micropy-system/local_builder.py \
+  --source-dir device \
+  --output-dir build \
+  --model pico2-w-rp2350 \
+  --version 1.0.1
+```
+
+Paths are resolved from the caller's working directory. The source directory
+must represent the final Pico filesystem layout, including root-level
+`boot.py` and `main.py`. This keeps application overlays and release workflows
+in the application repository while the packaging implementation remains in
+`micropy-system`.
+
 Release asset metadata includes the model, compressed size, SHA-256,
 MicroPython runtime version, and MPY format. The device validates these fields
 before decompressing the update.
