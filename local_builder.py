@@ -197,7 +197,10 @@ def create_tar_archive(source_dir, tar_path, temp_dir, deletion_paths=None):
     hash_file_path = os.path.join(temp_dir, HASH_FILENAME)
     create_hash_file(source_dir, temp_dir, hash_file_path, deletion_paths)
     
-    with tarfile.open(tar_path, "w") as tar:
+    # USTAR is the complete on-device contract. Python's default PAX format can
+    # inject hidden extended-header entries (././@PaxHeader), which the strict
+    # MicroPython parser correctly rejects as unsupported metadata.
+    with tarfile.open(tar_path, "w", format=tarfile.USTAR_FORMAT) as tar:
         # Add the hash file as the first entry
         tar.add(hash_file_path, arcname=HASH_FILENAME)
         print(f"Added {HASH_FILENAME} to archive as the first file")

@@ -169,6 +169,8 @@ class BuildVersionTests(unittest.TestCase):
             with tarfile.open(root / 'firmware.tar') as archive:
                 manifest = json.load(archive.extractfile('integrity.json'))
             self.assertEqual(manifest['delete'], ['lib/obsolete.mpy'])
+            raw_archive = (root / 'firmware.tar').read_bytes()
+            self.assertNotIn(b'././@PaxHeader', raw_archive)
 
     def test_deletion_manifest_rejects_duplicates_metadata_and_archived_paths(self):
         self.assertEqual(
