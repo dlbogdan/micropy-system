@@ -162,6 +162,15 @@ the device tree and synchronize it with MicroPico (or replace
 older `manager_firmware.mpy` is present beside a newly copied `.py`, remove the
 stale `.mpy` so MicroPython cannot continue importing the old implementation.
 
+Target-project assembly adds a `.micropy-system-device-tree` marker. Configure
+MicroPico's sync folder as `device`; the initializer creates a minimal
+`.vscode/settings.json` containing only this setting and leaves an existing
+settings file unchanged. It does not create `.micropico`. Never synchronize
+the repository root.
+Host-side build tooling rejects common project-root paths such as `vendor`,
+`tools`, nested `device`, and `build`. Device runtime code deliberately makes
+no assumptions about legitimate application directory names.
+
 ### Creating Firmware Bundles
 
 Firmware updates should be packaged as TAR archives with ZLIB compression, containing all files to be updated.

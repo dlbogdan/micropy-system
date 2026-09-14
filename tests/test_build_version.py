@@ -13,6 +13,15 @@ import firmware_server
 
 
 class BuildVersionTests(unittest.TestCase):
+    def test_initializer_writes_only_the_idempotent_sync_folder_setting(self):
+        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.sh').read_text()
+        self.assertIn('write_file .vscode/settings.json', initializer)
+        self.assertIn('"micropico.syncFolder": "device"', initializer)
+        self.assertNotIn('"micropico.openOnStart"', initializer)
+        self.assertNotIn('"micropico.autoConnect"', initializer)
+        self.assertNotIn('write_file .micropico', initializer)
+        self.assertIn('.micropy-system-device-tree', initializer)
+
     def test_legacy_packager_defaults_to_canonical_github_adapter(self):
         args = prepare_release.compatibility_args([])
         self.assertIn('github-assets', args)

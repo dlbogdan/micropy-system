@@ -344,6 +344,15 @@ def main(argv=None):
     output_dir = os.path.abspath(args.output_dir)
     if not os.path.isdir(source_dir):
         parser.error(f"source directory does not exist: {source_dir}")
+    accidental_paths = [
+        name for name in ('vendor', 'tools', 'device', 'build', '.git')
+        if os.path.exists(os.path.join(source_dir, name))
+    ]
+    if accidental_paths:
+        parser.error(
+            "source directory looks like a host project root; unexpected paths: "
+            + ", ".join(accidental_paths)
+        )
 
     version = get_version(args.version, source_dir)
     firmware_filename = f"{args.model}-firmware.tar.zlib"

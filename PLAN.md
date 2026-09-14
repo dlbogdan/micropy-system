@@ -421,6 +421,7 @@ Target ownership:
 - [ ] Document how to clear a rejected candidate version.
 - [ ] Remove or consolidate duplicate builder scripts.
 - [ ] Keep generated `build/`, `release/`, certificates, logs, and caches ignored.
+- [x] Idempotently initialize only the assembled `device/` MicroPico sync-folder setting, preserve existing editor configuration, and reject host-root packaging.
 
 #### Acceptance criteria
 
