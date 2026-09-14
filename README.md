@@ -60,7 +60,7 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
     "SSID": "your-wifi-ssid",
     "PASS": "your-wifi-password"
   },
-  "FIRMWARE": {
+    "FIRMWARE": {
     "GITHUB_REPO": "username/repo",
     "GITHUB_TOKEN": "",
     "DIRECT_BASE_URL": "https://your-update-server.com/firmware/",
@@ -77,7 +77,10 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
             "lib/coresys/manager_tasks.mpy"
     ],
     "MAX_FAILURE_ATTEMPTS": 3,
-    "NETWORK_TIMEOUT_MS": 60000
+    "NETWORK_TIMEOUT_MS": 60000,
+    "REQUEST_TIMEOUT_MS": 15000,
+    "RUNTIME_VERSION": "1.29.0",
+    "MPY_VERSION": 6
   }
 }
 ```
@@ -138,6 +141,18 @@ This starts a local HTTPS server serving firmware updates for testing.
 ### Creating Firmware Bundles
 
 Firmware updates should be packaged as TAR archives with ZLIB compression, containing all files to be updated.
+
+Local builds must select a target board because Pico W and Pico 2 W releases
+are separate assets:
+
+```sh
+.venv/bin/python local_builder.py --model pico-w-rp2040 --version 1.0.1
+.venv/bin/python local_builder.py --model pico2-w-rp2350 --version 1.0.1
+```
+
+Release asset metadata includes the model, compressed size, SHA-256,
+MicroPython runtime version, and MPY format. The device validates these fields
+before decompressing the update.
 
 ## Contributing
 

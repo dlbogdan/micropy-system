@@ -85,23 +85,28 @@ physical board with MicroPython 1.29.0 before installing compiled releases.
 
 ## Deployed-Board Record
 
-Complete these values after running the diagnostic:
+The first captured target is a fresh Pico 2 W. The ignored raw machine report
+is stored locally in `hardware-baseline.json`.
 
 | Property | Measured value |
 |---|---|
-| Board model | Raspberry Pi Pico W or Pico 2 W (record per device) |
-| Board revision | Pending hardware capture |
-| Physical flash | Pending board specification/visual confirmation |
-| MicroPython release | Pending hardware capture |
-| MicroPython build | Pending hardware capture |
-| `sys.platform` | Pending hardware capture |
-| Raw `sys.implementation._mpy` | Pending hardware capture |
-| MPY version/sub-version | Pending hardware capture |
-| MPY architecture ID | Pending hardware capture |
-| Filesystem type | Expected LittleFS2; confirm from provisioned firmware/process |
-| Filesystem total bytes | Pending hardware capture |
-| Filesystem free bytes, clean deployment | Pending hardware capture |
-| Heap free after GC at baseline | Pending hardware capture |
+| Board model | Raspberry Pi Pico 2 W with RP2350 |
+| Firmware board build | `RPI_PICO2_W` |
+| Board revision | Not exposed by the runtime; record from board markings if needed |
+| Physical flash | 4 MiB nominal Pico 2 W board flash; mounted MicroPython filesystem is smaller |
+| MicroPython release | 1.29.0 |
+| MicroPython build | `v1.29.0 on 2026-08-24 (GNU 16.1.0 MinSizeRel)` |
+| `sys.platform` | `rp2` |
+| Raw `sys.implementation._mpy` | 7942 |
+| MPY version/sub-version | 6.3 |
+| MPY architecture ID | 7 |
+| Filesystem type | LittleFS2 expected from the standard RP2 firmware; API does not expose its name |
+| Filesystem block size | 4096 bytes |
+| Filesystem total bytes | 2,621,440 bytes (2.5 MiB) |
+| Filesystem free bytes, clean deployment | 2,613,248 bytes |
+| Heap free after GC at baseline | 436,192 bytes |
+| Heap free after rename tests | 436,032 bytes |
+| CPU frequency | 150 MHz |
 | Current deployed application bytes | Pending deployment measurement |
 | Minimum heap during normal boot | Pending instrumented boot measurement |
 
@@ -113,11 +118,11 @@ Record the outcome from `hardware-baseline.json`:
 
 | Operation | Expected installer policy | Pico result |
 |---|---|---|
-| File over existing file | Do not assume; use measured behavior | Pending |
-| File over existing directory | Handle explicitly | Pending |
-| Directory over existing file | Handle explicitly | Pending |
-| Directory over empty directory | Do not assume; use measured behavior | Pending |
-| Directory over non-empty directory | Handle explicitly | Pending |
+| File over existing file | Supported on measured LittleFS | Success |
+| File over existing directory | Handle explicitly | `OSError(21)` (`EISDIR`) |
+| Directory over existing file | Handle explicitly | `OSError(20)` (`ENOTDIR`) |
+| Directory over empty directory | Supported on measured LittleFS | Success |
+| Directory over non-empty directory | Handle explicitly | `OSError(39)` (`ENOTEMPTY`) |
 
 Regardless of measured behavior, the A/B installer should avoid rename-over-type-change operations. It should recreate an empty inactive slot, populate it completely, and atomically change only the small slot-state record.
 
@@ -169,4 +174,8 @@ Record the minimum `gc.mem_free()` observed rather than only the initial value. 
 
 ## Milestone 0 Exit Conditions
 
-Milestone 0 is complete only after `hardware-baseline.json` has been captured from the actual target and this document's deployed-board and rename tables have been filled with measured values. The diagnostic and documentation workflow are implemented, but hardware-dependent checklist items remain pending until a Pico is connected.
+The Pico 2 W runtime, MPY ABI, filesystem capacity, idle heap, and rename
+semantics are now captured. The host compiler emits MPY v6.3, matching the
+device. Deployment-size and peak-boot-heap measurements remain part of the
+application integration work. A corresponding Pico W/RP2040 baseline should be
+captured when that board is available.

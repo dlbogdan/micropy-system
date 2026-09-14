@@ -18,7 +18,6 @@ import argparse
 # Configuration
 SOURCE_DIR = 'src'  # Source directory containing Python files
 BUILD_DIR = 'build'  # Output directory for built firmware
-OUTPUT_IMAGE = os.path.join(BUILD_DIR, 'firmware.tar.zlib')
 METADATA_FILE = os.path.join(BUILD_DIR, 'metadata.json')
 HASH_FILENAME = 'integrity.json'  # Name of the hash file included in the archive
 DEVICE_TYPE = 'pico'  # Target device type
@@ -176,7 +175,7 @@ def get_version(version_arg=None):
         print(f"Warning: Could not get version from git, using default: {DEFAULT_VERSION}")
         return f"v{DEFAULT_VERSION}"
 
-def create_metadata(compressed_data, version, repo_name, server_port):
+def create_metadata(compressed_data, version, repo_name, server_port, device_model, firmware_filename):
     """Create GitHub-like metadata JSON file."""
     sha256 = calculate_sha256(compressed_data)
     timestamp = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -210,18 +209,22 @@ def create_metadata(compressed_data, version, repo_name, server_port):
         "published_at": timestamp,
         "assets": [
             {
-                "url": f"https://{local_ip}:{https_port}/firmware.tar.zlib",
+                "url": f"https://{local_ip}:{https_port}/{firmware_filename}",
                 "id": 1,
                 "node_id": "LOCAL_ASSET",
-                "name": "firmware.tar.zlib",
+                "name": firmware_filename,
                 "label": "",
                 "content_type": "application/octet-stream",
                 "state": "uploaded",
                 "size": len(compressed_data),
+                "sha256": sha256,
+                "model": device_model,
+                "runtime_version": "1.29.0",
+                "mpy_version": 6,
                 "download_count": 0,
                 "created_at": timestamp,
                 "updated_at": timestamp,
-                "browser_download_url": f"https://{local_ip}:{https_port}/firmware.tar.zlib"
+                "browser_download_url": f"https://{local_ip}:{https_port}/{firmware_filename}"
             }
         ],
         "tarball_url": f"https://{local_ip}:{https_port}/",
@@ -263,9 +266,12 @@ def main():
     parser.add_argument('--version', type=str, help='Version to use for the firmware (default: auto from git)')
     parser.add_argument('--port', type=int, default=DEFAULT_PORT, help=f'Port for the server URLs (default: {DEFAULT_PORT})')
     parser.add_argument('--repo', type=str, default=DEFAULT_REPO, help=f'Repository name (default: {DEFAULT_REPO})')
+    parser.add_argument('--model', required=True, choices=['pico-w-rp2040', 'pico2-w-rp2350'], help='Target board model')
     
     args = parser.parse_args()
     version = get_version(args.version)
+    firmware_filename = f"{args.model}-firmware.tar.zlib"
+    output_image = os.path.join(BUILD_DIR, firmware_filename)
     
     print(f"=== Building firmware version {version} ===")
     
@@ -282,10 +288,11 @@ def main():
         create_tar_archive(SOURCE_DIR, temp_tar, temp_dir)
         
         # Step 3: Compress the tar file
-        compressed_data = compress_zlib(temp_tar, OUTPUT_IMAGE)
+        compressed_data = compress_zlib(temp_tar, output_image)
         
         # Step 4: Create GitHub-like metadata.json
-        metadata = create_metadata(compressed_data, version, args.repo, args.port)
+        metadata = create_metadata(
+            compressed_data, version, args.repo, args.port, args.model, firmware_filename)
         
         # Step 5: Write metadata.json file
         with open(METADATA_FILE, 'w') as f:
@@ -297,7 +304,7 @@ def main():
         print(f"Cleaned up temporary file: {temp_tar}")
         
         print(f"\n=== Build complete ===")
-        print(f"Firmware: {OUTPUT_IMAGE}")
+        print(f"Firmware: {output_image}")
         print(f"Metadata: {METADATA_FILE}")
         print(f"Version: {version}")
         print(f"Local IP: {get_local_ip()}")

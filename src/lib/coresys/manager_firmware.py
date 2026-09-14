@@ -23,7 +23,7 @@ class FirmwareUpdater:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, device_model=None, github_repo=None, github_token="", chunk_size=2048, max_redirects=10, direct_base_url=None, core_system_files=None, update_on_boot=True, max_failure_attempts=3, progress_callback=None):
+    def __init__(self, device_model=None, github_repo=None, github_token="", chunk_size=2048, max_redirects=10, direct_base_url=None, core_system_files=None, update_on_boot=True, max_failure_attempts=3, progress_callback=None, request_timeout_ms=15000, runtime_version="1.29.0", mpy_version=6):
         # If already initialized, just update the progress callback if provided
         if self._initialized:
             if progress_callback is not None:
@@ -46,6 +46,9 @@ class FirmwareUpdater:
         self.core_system_files = core_system_files or []
         self.update_on_boot = update_on_boot
         self.max_failure_attempts = max_failure_attempts
+        self.request_timeout_ms = request_timeout_ms
+        self.runtime_version = runtime_version
+        self.mpy_version = mpy_version
         
         # Progress callback support
         self.progress_callback = progress_callback
@@ -107,6 +110,13 @@ class FirmwareUpdater:
                 logger.warning(f"Progress callback error: {e}", log_to_file=True)
 
     @staticmethod
+    def _remove_file_if_exists(path):
+        try:
+            uos.remove(path)
+        except OSError:
+            pass
+
+    @staticmethod
     def _read_version():
         """Read the current version from a version file."""
         try:
@@ -153,27 +163,30 @@ class FirmwareUpdater:
             
         return host, port, path
             
-    async def _make_http_request(self, host, port, path,timeout=2):
+    async def _wait_for(self, awaitable):
+        """Apply the configured timeout to one network operation."""
+        return await asyncio.wait_for(awaitable, self.request_timeout_ms / 1000)
+
+    async def _make_http_request(self, host, port, path):
         """Make an HTTPS request and return the connection and response status."""
         logger.info(f'Connecting to {host}:{port} for path {path[:50]}...', log_to_file=True)
-        reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port, ssl=True), timeout)
+        reader, writer = await self._wait_for(asyncio.open_connection(host, port, ssl=True))
         headers = f'GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: MicroPython-Firmware-Updater/1.0\r\nConnection: close\r\n'
         if self.github_token:
             headers += f'Authorization: token {self.github_token}\r\n'
         headers += '\r\n'
         
         writer.write(headers.encode())
-        await writer.drain()
+        await self._wait_for(writer.drain())
 
-        status_line = await reader.readline()
+        status_line = await self._wait_for(reader.readline())
         return reader, writer, status_line
         
-    @staticmethod
-    async def _handle_redirect(reader, writer):
+    async def _handle_redirect(self, reader, writer):
         """Handle HTTP redirect and return the new location."""
         location = None
         while True:
-            header_line = await reader.readline()
+            header_line = await self._wait_for(reader.readline())
             if header_line == b'\r\n': 
                 break
             if header_line.startswith(b'Location:'):
@@ -183,18 +196,17 @@ class FirmwareUpdater:
         await writer.wait_closed()
         return location
         
-    @staticmethod
-    async def _process_response_headers(reader):
-        """Process HTTP response headers and return content length."""
-        content_length = 0
+    async def _process_response_headers(self, reader):
+        """Process HTTP response headers into a case-insensitive dictionary."""
+        headers = {}
         while True:
-            header_line = await reader.readline()
+            header_line = await self._wait_for(reader.readline())
             if header_line == b'\r\n': 
                 break
-            if header_line.startswith(b'Content-Length:'):
-                content_length = int(header_line.split(b':')[1].strip())
-        
-        return content_length
+            if b':' in header_line:
+                name, value = header_line.split(b':', 1)
+                headers[name.decode().strip().lower()] = value.decode().strip()
+        return headers
         
     async def _download_content(self, reader, store_in_memory, target_path, content_length):
         """Download content from the HTTP response."""
@@ -210,35 +222,37 @@ class FirmwareUpdater:
         self.total_size = content_length
         self.bytes_read = 0
         
-        remaining = content_length
-        last_progress_percent = 0
-        while remaining > 0:
-            chunk = await reader.read(min(self.chunk_size, remaining))
-            if not chunk: 
-                break
-            hash_obj.update(chunk)
-            if store_in_memory and mem_buffer is not None:
-                mem_buffer.extend(chunk)
-            elif file_handle:
-                file_handle.write(chunk)
-            self.bytes_read += len(chunk)
-            led_pin.toggle()
-            remaining -= len(chunk)
-            
-            # Notify progress callback for download progress
-            current_progress = self.percent_complete()
-            if current_progress != last_progress_percent and current_progress % 5 == 0:  # Update every 5%
-                self._notify_progress(
-                    stage="downloading",
-                    progress_percent=current_progress,
-                    message=f"Downloaded {self.bytes_read}/{self.total_size} bytes"
-                )
-                last_progress_percent = current_progress
-            
-            gc.collect()
-            await asyncio.sleep_ms(10)
-        led_pin.off()
-        if file_handle:
+        try:
+            remaining = content_length
+            last_progress_percent = 0
+            while remaining > 0:
+                chunk = await self._wait_for(reader.read(min(self.chunk_size, remaining)))
+                if not chunk:
+                    raise ValueError(
+                        f"Truncated response: received {self.bytes_read} of {content_length} bytes")
+                hash_obj.update(chunk)
+                if store_in_memory and mem_buffer is not None:
+                    mem_buffer.extend(chunk)
+                elif file_handle:
+                    file_handle.write(chunk)
+                self.bytes_read += len(chunk)
+                led_pin.toggle()
+                remaining -= len(chunk)
+
+                # Notify progress callback for download progress
+                current_progress = self.percent_complete()
+                if current_progress != last_progress_percent and current_progress % 5 == 0:
+                    self._notify_progress(
+                        stage="downloading",
+                        progress_percent=current_progress,
+                        message=f"Downloaded {self.bytes_read}/{self.total_size} bytes"
+                    )
+                    last_progress_percent = current_progress
+                gc.collect()
+                await asyncio.sleep(0.01)
+        finally:
+            led_pin.off()
+            if file_handle:
                 file_handle.close()
 
         def hexdigest(data):
@@ -247,7 +261,7 @@ class FirmwareUpdater:
             # except Exception:
             return binascii.hexlify(data.digest()) # probably more efficient
                 
-        computed_hash = hexdigest(hash_obj) if content_length > 0 else "NO_CONTENT_HASH"
+        computed_hash = hexdigest(hash_obj).decode().lower() if content_length > 0 else None
         
         if store_in_memory and mem_buffer is not None:
             content_str = mem_buffer.decode('utf-8')
@@ -255,7 +269,7 @@ class FirmwareUpdater:
         else:
             return None, computed_hash
             
-    async def _download_file(self, url, target_path, store_in_memory=False)->tuple[str|None, str|bytes|None]:
+    async def _download_file(self, url, target_path, store_in_memory=False):
         """Core download logic, assuming HTTPS. Optionally stores in memory."""
         self.total_size = 0
         self.bytes_read = 0
@@ -267,12 +281,18 @@ class FirmwareUpdater:
         
         writer = None
         try:
+            if target_path:
+                self._remove_file_if_exists(target_path)
             while redirects > 0:
                 host, port, path = self._parse_url(current_url)
                 reader, writer, status_line = await self._make_http_request(host, port, path)
                 
-                if status_line.startswith(b'HTTP/1.1 301') or status_line.startswith(b'HTTP/1.1 302'):
+                if any(status_line.startswith(prefix) for prefix in (
+                        b'HTTP/1.1 301', b'HTTP/1.1 302', b'HTTP/1.1 307', b'HTTP/1.1 308')):
                     location = await self._handle_redirect(reader, writer)
+                    writer = None
+                    if not location or not location.startswith('https://'):
+                        raise ValueError("Redirect did not provide an absolute HTTPS location")
                     current_url = location
                     redirects -= 1
                     if redirects == 0:
@@ -284,7 +304,10 @@ class FirmwareUpdater:
                     await writer.wait_closed()
                     raise ValueError(f'Unexpected response: {status_line.decode().strip()}')
 
-                content_length = await self._process_response_headers(reader)
+                headers = await self._process_response_headers(reader)
+                if headers.get('transfer-encoding', '').lower() == 'chunked':
+                    raise ValueError('Chunked transfer encoding is not supported')
+                content_length = int(headers.get('content-length', '0'))
                 
                 if content_length == 0 and not store_in_memory:
                     writer.close()
@@ -299,6 +322,7 @@ class FirmwareUpdater:
                 
                 writer.close()
                 await writer.wait_closed()
+                writer = None
                 led_pin.off()
                 self.download_done = True
                 
@@ -309,10 +333,16 @@ class FirmwareUpdater:
         except Exception as e:
             self.error = f"Download failed for {url}: {str(e)}"
             logger.error(f"FirmwareUpdater: {self.error}")
-            if writer and not writer.is_closing():
-                writer.close()
-                await writer.wait_closed()
-            return None, None 
+            if target_path:
+                self._remove_file_if_exists(target_path)
+            return None, None
+        finally:
+            if writer:
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except Exception:
+                    pass
 
     def percent_complete(self):
         if not self.download_started or self.total_size == 0:
@@ -347,21 +377,52 @@ class FirmwareUpdater:
         except OSError:
             pass
     
-    def _read_failure_counter(self):
-        """Read the current failure counter from update flag file"""
+    def _read_update_state(self):
+        """Read release-specific attempt state, including legacy counters."""
         try:
             with open(self.update_flag_path, 'r') as f:
                 content = f.read().strip()
-                if content:
-                    return int(content)
-        except (OSError, ValueError):
+            if not content:
+                return {}
+            try:
+                state = ujson.loads(content)
+                return state if isinstance(state, dict) else {}
+            except ValueError:
+                return {"version": None, "attempts": int(content)}
+        except (OSError, ValueError, TypeError):
             pass
-        return 0
+        return {}
     
-    def _write_failure_counter(self, count):
-        """Write failure counter to update flag file"""
-        with open(self.update_flag_path, 'w') as f:
-            f.write(str(count))
+    def _write_update_state(self, state):
+        """Atomically persist release-specific update state."""
+        temporary_path = self.update_flag_path + '.new'
+        with open(temporary_path, 'w') as f:
+            ujson.dump(state, f)
+        try:
+            uos.remove(self.update_flag_path)
+        except OSError:
+            pass
+        uos.rename(temporary_path, self.update_flag_path)
+
+    def _begin_release_attempt(self, version):
+        state = self._read_update_state()
+        attempts = state.get("attempts", 0) if state.get("version") == version else 0
+        attempts += 1
+        self._write_update_state({"version": version, "attempts": attempts})
+        return attempts
+
+    def begin_apply_attempt(self):
+        """Count an installation attempt only after the artifact is downloaded."""
+        if not self.pending_update_version:
+            raise ValueError("No pending release is ready to apply")
+        return self._begin_release_attempt(self.pending_update_version)
+
+    def _is_release_rejected(self, version):
+        state = self._read_update_state()
+        return (
+            state.get("version") == version
+            and state.get("attempts", 0) >= self.max_failure_attempts
+        )
     
     def _cleanup_success_flags(self):
         """Internal method to clean up flags after successful operations"""
@@ -419,6 +480,59 @@ class FirmwareUpdater:
             self.error = f"Latest release metadata processing error: {str(e)}"
             logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
             return None
+
+    def _normalize_release(self, latest_release, latest_version_str):
+        """Normalize GitHub-shaped metadata into the installer contract."""
+        assets = latest_release.get("assets", [])
+        selected_asset = None
+        generic_asset = None
+        for asset in assets:
+            if asset.get("name", "").endswith(".tar.zlib"):
+                asset_model = asset.get("model")
+                if asset_model == self.device_model or asset.get("name", "").startswith(self.device_model + "-"):
+                    selected_asset = asset
+                    break
+                if asset_model is None and asset.get("name") == "firmware.tar.zlib":
+                    generic_asset = asset
+        if selected_asset is None:
+            selected_asset = generic_asset
+        if not selected_asset:
+            self.error = "No firmware asset found in release"
+            return None
+
+        digest = selected_asset.get("sha256") or latest_release.get("sha256")
+        github_digest = selected_asset.get("digest")
+        if not digest and isinstance(github_digest, str) and github_digest.startswith("sha256:"):
+            digest = github_digest.split(":", 1)[1]
+
+        normalized = {
+            "version": latest_version_str,
+            "url": selected_asset.get("browser_download_url"),
+            "filename": selected_asset.get("name"),
+            "size": selected_asset.get("size") or latest_release.get("size"),
+            "sha256": digest.lower() if isinstance(digest, str) else None,
+            "model": selected_asset.get("model") or latest_release.get("model") or latest_release.get("device_type"),
+            "runtime_version": selected_asset.get("runtime_version") or latest_release.get("runtime_version"),
+            "mpy_version": selected_asset.get("mpy_version") or latest_release.get("mpy_version"),
+        }
+        if normalized["model"] is None and normalized["filename"].startswith(self.device_model + "-"):
+            normalized["model"] = self.device_model
+        if not normalized["url"] or not normalized["size"] or not normalized["sha256"]:
+            self.error = "Release asset is missing URL, size, or SHA-256"
+            return None
+        if not normalized["model"]:
+            self.error = "Release asset is missing a target model"
+            return None
+        if normalized["model"] != self.device_model:
+            self.error = f"Release model {normalized['model']} does not match {self.device_model}"
+            return None
+        if normalized["runtime_version"] and normalized["runtime_version"] != self.runtime_version:
+            self.error = f"Release runtime {normalized['runtime_version']} does not match {self.runtime_version}"
+            return None
+        if normalized["mpy_version"] is not None and int(normalized["mpy_version"]) != self.mpy_version:
+            self.error = f"Release MPY version {normalized['mpy_version']} does not match {self.mpy_version}"
+            return None
+        return normalized
     
     def _compare_versions(self, latest_version_str):
         """Compare current and latest versions to determine if update is needed."""
@@ -438,7 +552,7 @@ class FirmwareUpdater:
             
 
         
-    async def _download_firmware(self, firmware_url):
+    async def _download_firmware(self, release):
         """Download the firmware file."""
         self.download_done = False 
         self.download_started = False
@@ -446,7 +560,7 @@ class FirmwareUpdater:
         self.total_size = 0
 
         firmware_download_result = await self._download_file(
-            firmware_url, self.firmware_download_path, store_in_memory=False)
+            release["url"], self.firmware_download_path, store_in_memory=False)
 
         firmware_content_str, computed_sha256 = None, None 
         if firmware_download_result is not None:
@@ -458,30 +572,25 @@ class FirmwareUpdater:
             self.pending_update_version = None  # Clear pending version on download error
             return False
 
+        if self.bytes_read != int(release["size"]):
+            self.error = f"Firmware size mismatch: expected {release['size']}, got {self.bytes_read}"
+            self._remove_file_if_exists(self.firmware_download_path)
+            return False
+        if computed_sha256 != release["sha256"]:
+            self.error = f"Firmware SHA-256 mismatch: expected {release['sha256']}, got {computed_sha256}"
+            self._remove_file_if_exists(self.firmware_download_path)
+            return False
+
         return True
 
     def should_attempt_update(self):
-        """Check if update should be attempted, handling all flag logic internally"""
+        """Check whether automatic checks are enabled without counting a failure."""
         # Check if updates are enabled
         if not self.update_on_boot:
             self._cleanup_old_update_flag()
             return False, "Updates disabled in config"
             
-        # Check failure counter
-        failure_counter = self._read_failure_counter()
-        
-        if failure_counter >= self.max_failure_attempts:
-            logger.error("Max update failure attempts reached.", log_to_file=True)
-            self.update_on_boot = False
-            logger.info("UPDATE_ON_BOOT disabled to prevent further attempts.", log_to_file=True)
-            self._cleanup_old_update_flag()
-            return False, f"Max attempts reached ({failure_counter})"
-            
-        # Start new attempt - increment counter
-        next_failure_count = failure_counter + 1
-        self._write_failure_counter(next_failure_count)
-        
-        return True, f"Starting update attempt {next_failure_count}"
+        return True, "Automatic update checks enabled"
 
     async def check_update(self):
         """Checks if a new firmware update is available without downloading."""
@@ -518,7 +627,17 @@ class FirmwareUpdater:
             if self._path_exists(self.update_flag_path):
                 self._cleanup_success_flags()  # Only clean up if flag actually exists
             
-        return is_newer_available, latest_version_str, latest_release
+        normalized_release = None
+        if is_newer_available:
+            normalized_release = self._normalize_release(latest_release, latest_version_str)
+            if not normalized_release:
+                self._notify_progress("checking", 100, "Release is incompatible or incomplete", error=self.error)
+                return False, latest_version_str, None
+            if self._is_release_rejected(latest_version_str):
+                self.error = f"Release {latest_version_str} rejected after {self.max_failure_attempts} attempts"
+                return False, latest_version_str, None
+
+        return is_newer_available, latest_version_str, normalized_release
     
     async def download_update(self, latest_release):
         """Downloads the firmware update."""
@@ -530,43 +649,23 @@ class FirmwareUpdater:
             self._notify_progress("downloading", 100, "Invalid release data", error=self.error)
             return False
 
-        latest_version_str = latest_release.get("tag_name", "0.0.0")
-        if latest_version_str.startswith('v'):
-            latest_version_str = latest_version_str[1:]
+        latest_version_str = latest_release.get("version", "0.0.0")
         
         self.pending_update_version = latest_version_str
         self._notify_progress("downloading", 5, f"Preparing to download version {latest_version_str}")
 
-        # Find firmware URL
-        firmware_url, firmware_filename = self._get_firmware_url(latest_release)
-        if not firmware_url:
-            self.pending_update_version = None
-            self._notify_progress("downloading", 100, "No firmware asset found", error=self.error)
-            return False
-
         # Download firmware
-        self._notify_progress("downloading", 10, f"Starting download of {firmware_filename}")
-        success = await self._download_firmware(firmware_url, firmware_filename)
+        self._notify_progress("downloading", 10, f"Starting download of {latest_release.get('filename')}")
+        success = await self._download_firmware(latest_release)
         if not success:
             self.pending_update_version = None
             self._notify_progress("downloading", 100, "Download failed", error=self.error)
             return False
             
-        logger.info(f"Firmware downloaded successfully: {firmware_filename}", log_to_file=True)
-        self._notify_progress("downloading", 100, f"Download completed: {firmware_filename}")
+        logger.info(f"Firmware downloaded successfully: {latest_release.get('filename')}", log_to_file=True)
+        self._notify_progress("downloading", 100, f"Download completed: {latest_release.get('filename')}")
         return True
         
-    def _get_firmware_url(self, latest_release):
-        """Extract firmware download URL from release data."""
-        assets = latest_release.get("assets", [])
-        
-        for asset in assets:
-            if asset.get("name", "").endswith(".tar.zlib"):
-                return asset.get("browser_download_url"), asset.get("name")
-                
-        self.error = "No firmware asset found in release"
-        return None, None
-
     @staticmethod
     def _mkdirs(path):
         current_path = ""
@@ -996,9 +1095,13 @@ class FirmwareUpdater:
         logger.info(step_msg, log_to_file=True)
         
         backup_dir = "/backup"
+        backup_new = "/backup.new"
+        backup_old = "/backup.old"
         # Exclude backup dir, update dir, temp files, logs, and sensitive configs
         excluded_top_level_items = [
-            backup_dir, 
+            backup_dir,
+            backup_new,
+            backup_old,
             "/update", 
             self.firmware_download_path, # /update.tar.zlib
             "/update.tmp.tar",
@@ -1007,7 +1110,15 @@ class FirmwareUpdater:
             "/__applying"
         ]
         try:
-            self._mkdirs(backup_dir) # Ensure backup_dir itself exists
+            await self._remove_path_if_exists(backup_new)
+            self._mkdirs(backup_new)
+
+            required_bytes = self._directory_size("/", excluded_top_level_items)
+            free_bytes = self._free_bytes("/")
+            if free_bytes < required_bytes:
+                self.error = f"Insufficient space for backup: need {required_bytes}, have {free_bytes}"
+                await self._remove_path_if_exists(backup_new)
+                return False
             
             root_items = uos.listdir("/")
             for item_name in root_items:
@@ -1020,7 +1131,7 @@ class FirmwareUpdater:
                     continue
 
                 # Construct full destination path within backup_dir
-                dest_path = f"{backup_dir.rstrip('/')}{source_path}" 
+                dest_path = f"{backup_new.rstrip('/')}{source_path}"
                 try:
                     await self._copy_item_recursive(source_path, dest_path)
                 except Exception as e_copy:
@@ -1029,13 +1140,55 @@ class FirmwareUpdater:
                     return False # Abort backup on first error
                 await asyncio.sleep(0) # Yield between top-level items
             
-            success_msg = "Backup completed successfully."
+            await self._remove_path_if_exists(backup_old)
+            had_previous_backup = self._path_exists(backup_dir)
+            if had_previous_backup:
+                uos.rename(backup_dir, backup_old)
+            try:
+                uos.rename(backup_new, backup_dir)
+            except Exception:
+                if had_previous_backup and self._path_exists(backup_old):
+                    uos.rename(backup_old, backup_dir)
+                raise
+            await self._remove_path_if_exists(backup_old)
+
+            success_msg = "Backup completed and promoted successfully."
             logger.info(success_msg, log_to_file=True)
             return True
         except Exception as e_main:
             self.error = f"Backup process failed: {str(e_main)}"
             logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
             return False
+
+    async def _remove_path_if_exists(self, path):
+        if not self._path_exists(path):
+            return
+        if self._is_existing_path_a_directory(path):
+            await self._remove_dir_recursive(path)
+        else:
+            uos.remove(path)
+
+    @staticmethod
+    def _free_bytes(path):
+        stat = uos.statvfs(path)
+        return stat[0] * stat[3]
+
+    def _directory_size(self, path, excluded_top_level_items=None):
+        """Return logical file bytes below path, excluding selected root paths."""
+        excluded = excluded_top_level_items or []
+        total = 0
+        for item_name in uos.listdir(path):
+            item_path = f"{path.rstrip('/')}/{item_name}"
+            if not item_path.startswith('/'):
+                item_path = '/' + item_path
+            if item_path in excluded:
+                continue
+            stat = uos.stat(item_path)
+            if stat[0] & 0x4000:
+                total += self._directory_size(item_path)
+            else:
+                total += stat[6]
+        return total
         
     @staticmethod
     def _is_existing_path_a_directory(path:str) -> bool:

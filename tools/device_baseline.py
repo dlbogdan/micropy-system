@@ -192,6 +192,9 @@ def _implementation_dict():
     result = {
         "name": implementation.name,
         "version": list(version),
+        "build": getattr(implementation, "_build", None),
+        "machine": getattr(implementation, "_machine", None),
+        "thread": getattr(implementation, "_thread", None),
         "mpy_raw": raw_mpy,
         "mpy_version": None,
         "mpy_sub_version": None,

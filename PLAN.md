@@ -71,17 +71,17 @@ Before changing update semantics, record the exact target environment.
 
 #### Tasks
 
-- [ ] Record Pico/Pico W board revision and flash size. Hardware capture workflow is ready; actual board measurement is pending.
-- [ ] Record the exact MicroPython version and build identifier. Hardware capture workflow is ready; actual board measurement is pending.
-- [ ] Record the `.mpy` ABI/version expected by that MicroPython build. The project targets MicroPython 1.29.0 on both supported boards; actual board measurement is pending.
-- [ ] Record filesystem type and test `uos.rename()` behavior on LittleFS. The sandboxed test is implemented; actual board measurement is pending:
+- [x] Record Pico 2 W model, standard-board flash specification, and mounted filesystem capacity. Pico W/RP2040 capture remains pending until that target is available.
+- [x] Record the exact Pico 2 W MicroPython version and build identifier.
+- [x] Record the Pico 2 W `.mpy` ABI/version and verify that host `mpy-cross` emits matching MPY v6.3.
+- [x] Test `uos.rename()` behavior on the Pico 2 W standard firmware filesystem:
   - file over existing file;
   - file over directory;
   - directory over file;
   - directory over empty directory;
   - directory over non-empty directory.
-- [ ] Capture `uos.statvfs('/')` values on a clean provisioned board. Diagnostic implemented; board run pending.
-- [ ] Capture current deployed application size, free flash, and peak free heap during boot. Idle heap/filesystem capture is implemented; deployed size and instrumented peak remain pending.
+- [x] Capture `uos.statvfs('/')` values on a clean provisioned Pico 2 W.
+- [ ] Capture current deployed application size and peak free heap during application boot. Clean-board free flash and idle heap are captured.
 - [x] Add a short hardware compatibility section to the README.
 - [x] Add a repeatable `mpremote` baseline capture command and on-device rename test.
 - [x] Document the MicroPico-based manual capture alternative and distinguish editor stubs/device packages from the host release toolchain.
@@ -103,13 +103,13 @@ This milestone makes the current in-place architecture usable before introducing
 
 #### 1.1 Fix direct runtime blockers
 
-- [ ] Fix the extra `firmware_filename` argument passed to `_download_firmware()`.
-- [ ] Add an integration test that reaches update discovery and starts artifact download, so this mismatch cannot recur.
-- [ ] Delete partial `/update.tar.zlib` before a new download.
-- [ ] On download failure, close streams and remove the partial artifact.
-- [ ] Treat an early EOF as an error when fewer bytes than `Content-Length` were received.
-- [ ] Treat extra bytes or malformed length metadata deterministically.
-- [ ] Add configurable connect, header-read, and body-read timeouts instead of applying one short timeout only to connection establishment.
+- [x] Fix the extra `firmware_filename` argument passed to `_download_firmware()`.
+- [x] Add an integration test that reaches artifact verification, so this mismatch cannot recur.
+- [x] Delete partial `/update.tar.zlib` before a new download.
+- [x] On download failure, close streams and remove the partial artifact.
+- [x] Treat an early EOF as an error when fewer bytes than `Content-Length` were received.
+- [x] Treat malformed or unsupported length/transfer metadata deterministically; body reads are bounded to the declared length.
+- [x] Add configurable connect, header-read, and body-read timeouts instead of applying one short timeout only to connection establishment.
 
 #### 1.2 Verify the complete downloaded artifact
 
@@ -125,46 +125,46 @@ Define one normalized release model inside the device:
 }
 ```
 
-- [ ] Add artifact `size`, `sha256`, and device `model` to release metadata.
-- [ ] Parse GitHub and direct-server responses into this internal model.
-- [ ] Compare the computed archive hash against metadata before decompression.
-- [ ] Compare received byte count against expected metadata size and HTTP length.
-- [ ] Normalize SHA-256 values to lowercase strings; do not mix `bytes` and `str` representations.
-- [ ] Reject a release for a different model.
-- [ ] Preserve the verified release version in persistent update state.
+- [x] Add artifact `size`, `sha256`, and device `model` to release metadata.
+- [x] Parse GitHub and direct-server GitHub-shaped responses into this internal model.
+- [x] Compare the computed archive hash against metadata before decompression.
+- [x] Compare received byte count against expected metadata size and HTTP length.
+- [x] Normalize SHA-256 values to lowercase strings; do not mix `bytes` and `str` representations.
+- [x] Reject a release for a different model, runtime version, or MPY format.
+- [x] Preserve the verified release version in persistent update state when applying starts.
 
 #### 1.3 Correct retry accounting
 
 Replace the current boot-check counter with release-specific state.
 
-- [ ] Do not increment failure counters merely because the device checked for updates.
-- [ ] Do not count offline boot, DNS failure, TLS failure, or metadata-server outage as a candidate boot failure.
-- [ ] Track download failures separately from installation and candidate-boot failures.
-- [ ] Associate counters with a version so a new release is not blocked by failures from an old release.
-- [ ] Persist a quarantine/rejected version when maximum attempts are reached.
-- [ ] Permit a newer release even if the previous release was rejected.
+- [x] Do not increment failure counters merely because the device checked for updates.
+- [x] Do not count offline boot, DNS failure, TLS failure, metadata-server outage, or download failure as an apply failure.
+- [ ] Track download diagnostics separately from installation and candidate-boot failures.
+- [x] Associate apply counters with a version so a new release is not blocked by failures from an old release.
+- [x] Persist a quarantine/rejected version when maximum apply attempts are reached.
+- [x] Permit a newer release even if the previous release was rejected.
 - [ ] Add an explicit method to clear a rejected release during development.
 
 #### 1.4 Correct boot orchestration
 
-- [ ] Make `boot.py` the sole owner of automatic update checks during the transitional architecture.
-- [ ] Remove the duplicate update check from `main.py`.
-- [ ] Ensure `boot.py` always tears down update networking cleanly before normal application startup.
-- [ ] Avoid creating unrelated `asyncio.run()` loops for setup and shutdown if one boot coroutine can own the lifecycle.
-- [ ] Apply `NETWORK_TIMEOUT_MS` to the complete boot network/update-check phase.
-- [ ] Define timeout behavior as “continue into the installed application,” not reset or count a firmware failure.
-- [ ] Make all boot exceptions produce a bounded failure path and continue to the known installed app when safe.
+- [x] Make `boot.py` the sole owner of automatic update checks during the transitional architecture.
+- [x] Remove the duplicate update check from `main.py`.
+- [x] Ensure `boot.py` tears down update networking before normal application startup.
+- [x] Avoid creating unrelated `asyncio.run()` loops for setup and shutdown; one boot coroutine owns the lifecycle.
+- [x] Apply `NETWORK_TIMEOUT_MS` to Wi-Fi establishment and per-operation `REQUEST_TIMEOUT_MS` to update HTTP operations.
+- [x] Define timeout behavior as “continue into the installed application,” not reset or count a firmware failure.
+- [x] Make boot exceptions return through bounded cleanup rather than creating a boot reset loop.
 
 #### 1.5 Repair current backup behavior
 
 This is transitional and will be retired after A/B slots are proven.
 
-- [ ] Clear a previous backup into a temporary/old directory before creating a fresh backup.
-- [ ] Build the new backup under `/backup.new`.
-- [ ] Promote `/backup.new` only after every copy succeeds.
-- [ ] Preserve the previous valid backup until the new one is complete.
+- [x] Clear a previous temporary backup and rotate the valid backup to an old directory during promotion.
+- [x] Build the new backup under `/backup.new`.
+- [x] Promote `/backup.new` only after every copy succeeds.
+- [x] Preserve the previous valid backup until the new one is complete and restore it if promotion fails.
 - [ ] Exclude update staging, logs, state files, and volatile data explicitly.
-- [ ] Check free space before backup.
+- [x] Check logical source bytes against free space before backup.
 - [ ] Abort before creating `/__applying` if backup is incomplete.
 - [ ] Handle file/directory type changes explicitly rather than relying on rename-overwrite behavior.
 - [ ] Add a deletion manifest or document that deletions are unsupported during this milestone.

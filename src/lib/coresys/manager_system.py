@@ -30,7 +30,7 @@ class SystemManager:
         await self.cleanup()
         # asyncio.new_event_loop()
 
-    async def setup_network(self):
+    async def setup_network(self, timeout_ms=60000):
         """Create WiFi service instance.
 
         Returns:
@@ -39,9 +39,11 @@ class SystemManager:
         try:
             # self._network_manager = WiFiManager(ssid, password, self._device_name)
             logger.info(f"SystemManager: Network Up")
-            self._network_manager.up()
             logger.info(f"SystemManager: Waiting for network")
-            await self._network_manager.wait_until_up()
+            connected = await self._network_manager.wait_until_up(timeout_ms)
+            if not connected:
+                logger.warning("SystemManager: Network unavailable before timeout")
+                return False
             logger.info(f"SystemManager: Network is up, IP Addr:{self._network_manager.get_ip()}")
             logger.info(f"SystemManager: Network keepalive task starting")
             self._task_manager.create_periodic_task(self._network_manager.refresh,interval_ms=500)

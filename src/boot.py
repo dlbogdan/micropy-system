@@ -6,7 +6,7 @@ from lib.coresys.manager_system import SystemManager
 from lib.coresys.manager_firmware import FirmwareUpdater
 from lib.coresys.manager_config import ConfigManager
 import lib.coresys.logger as logger
-from lib.coresys.manager_wifi import NetworkManager,WiFiManager
+from lib.coresys.manager_wifi import WiFiManager
 
 logger.initialize(debug_level=3)
 sys_config = ConfigManager("/system-config.json")
@@ -33,6 +33,9 @@ def create_firmware_updater():
         max_redirects = sys_config.get("FIRMWARE", "MAX_REDIRECTS", 10)
         update_on_boot = sys_config.get("FIRMWARE", "UPDATE_ON_BOOT", True)
         max_failure_attempts = sys_config.get("FIRMWARE", "MAX_FAILURE_ATTEMPTS", 3)
+        request_timeout_ms = sys_config.get("FIRMWARE", "REQUEST_TIMEOUT_MS", 15000)
+        runtime_version = sys_config.get("FIRMWARE", "RUNTIME_VERSION", "1.29.0")
+        mpy_version = sys_config.get("FIRMWARE", "MPY_VERSION", 6)
 
 
         # Define the boot progress callback function for the boot process
@@ -52,7 +55,10 @@ def create_firmware_updater():
             core_system_files=core_system_files,
             update_on_boot=update_on_boot,
             max_failure_attempts=max_failure_attempts,
-            progress_callback=boot_progress_callback
+            progress_callback=boot_progress_callback,
+            request_timeout_ms=request_timeout_ms,
+            runtime_version=runtime_version,
+            mpy_version=mpy_version
         )
         
         if direct_base_url:
@@ -97,7 +103,9 @@ async def perform_firmware_update():
         return
 
     logger.info("Boot: Setting up WiFi connection", log_to_file=True)
-    await system.setup_network()
+    if not await system.setup_network(network_timeout_ms):
+        logger.warning("Boot: Network unavailable; continuing with installed application.", log_to_file=True)
+        return
     logger.info("Boot: Checking for updates...", log_to_file=True)
     is_available, version_str, release_info = await updater.check_update()
     if updater.error and not version_str:
@@ -112,6 +120,8 @@ async def perform_firmware_update():
             logger.error(f"Boot: Download failed: {updater.error}", log_to_file=True)
             return
 
+        apply_attempt = updater.begin_apply_attempt()
+        logger.info(f"Boot: Starting apply attempt {apply_attempt} for {version_str}", log_to_file=True)
         update_applied = await updater.apply_update()
         if not update_applied:
             logger.error(f"Boot: Apply failed: {updater.error}", log_to_file=True)
@@ -125,14 +135,20 @@ async def perform_firmware_update():
         await asyncio.sleep_ms(250)
         machine.reset()
 
+async def boot_main():
+    """Own the complete boot event-loop lifecycle."""
+    try:
+        await perform_firmware_update()
+    finally:
+        logger.info("Boot: Firmware update lifecycle finished.", log_to_file=True)
+        await system.shutdown()
+
+
 # Run the update check on boot (main execution part)
 if __name__ == "__main__":
     try:
-        asyncio.run(perform_firmware_update())
+        asyncio.run(boot_main())
     except KeyboardInterrupt:
         logger.info("Boot: Process interrupted by user.", log_to_file=True)
     except Exception as e:
         logger.error(f"Boot: Unhandled exception in boot sequence: {e}", log_to_file=True)
-    finally:
-        logger.info("Boot: Main execution of boot.py finished.", log_to_file=True)
-        asyncio.run(system.shutdown())

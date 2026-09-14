@@ -24,7 +24,11 @@ def parse_report(output):
 
 
 def build_command(port):
-    command = ["mpremote"]
+    # Prefer the mpremote installed beside the active Python interpreter. This
+    # keeps capture working when invoked as `.venv/bin/python ...` without
+    # requiring virtual-environment activation.
+    local_mpremote = Path(sys.prefix) / "bin" / "mpremote"
+    command = [str(local_mpremote) if local_mpremote.exists() else "mpremote"]
     if port:
         command.extend(["connect", port])
     command.extend(["run", str(DEVICE_SCRIPT)])
