@@ -273,10 +273,10 @@ Use a small schema such as:
 #### 3.3 Create the stable launcher
 
 - [ ] Keep root `boot.py` small: hardware/bootstrap setup only.
-- [ ] Keep root `main.py` small: choose a slot, adjust `sys.path`, import `app_entry`, and run it.
-- [ ] Avoid importing the slot entry as `main` to prevent collision with the root launcher.
-- [ ] Increment and persist candidate attempt count before importing a pending slot.
-- [ ] Catch candidate import/startup exceptions and return to the previous slot.
+- [x] Keep root `main.py` small: choose a slot, adjust `sys.path`, import `app_entry`, and run it.
+- [x] Avoid importing the slot entry as `main` to prevent collision with the root launcher.
+- [x] Increment and persist candidate attempt count before importing a pending slot.
+- [x] Catch candidate import/startup exceptions and return to the previous slot.
 - [ ] Record reset cause where supported to aid rollback diagnostics.
 - [ ] Ensure a corrupt candidate cannot overwrite selector modules through ordinary releases.
 
