@@ -128,6 +128,26 @@ class FirmwareUpdaterTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.updater._validate_archive_path(path)
 
+    def test_integrity_manifest_accepts_validated_deletions(self):
+        with tempfile.TemporaryDirectory() as directory:
+            Path(directory, 'integrity.json').write_text(json.dumps({
+                'files': {'boot.py': 'digest'},
+                'delete': ['lib/obsolete.mpy'],
+            }))
+            hashes = self.updater._parse_sha256sums_file(directory)
+            self.assertEqual(hashes, {'boot.py': 'digest'})
+            self.assertEqual(self.updater.deletion_paths, ['lib/obsolete.mpy'])
+
+    def test_integrity_manifest_rejects_unsafe_or_conflicting_deletions(self):
+        for deletion in ('../escape.py', 'boot.py', 'integrity.json',
+                         'backup/boot.py', 'system-config.json'):
+            with self.subTest(deletion=deletion), tempfile.TemporaryDirectory() as directory:
+                Path(directory, 'integrity.json').write_text(json.dumps({
+                    'files': {'boot.py': 'digest'},
+                    'delete': [deletion],
+                }))
+                self.assertEqual(self.updater._parse_sha256sums_file(directory), {})
+
     def test_rejects_wrong_model(self):
         result = self.updater._normalize_release(
             self.release(asset={"model": "pico2-w-rp2350"}), "1.2.3")

@@ -40,6 +40,11 @@ MAX_ARCHIVE_FILE_BYTES = 512 * 1024
 MAX_ARCHIVE_TOTAL_BYTES = 2 * 1024 * 1024
 MAX_ARCHIVE_PATH_LENGTH = 192
 MAX_ARCHIVE_PATH_DEPTH = 12
+MAX_DELETION_PATHS = 256
+RESERVED_DELETION_ROOTS = {
+    HASH_FILENAME, 'backup', 'update', 'update.tmp.tar', 'update.tar.zlib',
+    '__applying', '__updating', 'system-config.json', 'version.txt',
+}
 
 def validate_archive_path(path):
     if not path or len(path) > MAX_ARCHIVE_PATH_LENGTH or path.startswith('.'):
@@ -114,7 +119,26 @@ def calculate_file_sha256(file_path):
             sha256_hash.update(byte_block)
     return sha256_hash.hexdigest()
 
-def create_hash_file(source_dir, temp_dir, hash_file_path):
+def normalize_deletion_paths(deletion_paths, archived_paths=None):
+    """Validate and de-duplicate application-relative deletion paths."""
+    normalized = []
+    seen = set()
+    archived_paths = set(archived_paths or ())
+    for path in deletion_paths or ():
+        canonical = validate_archive_path(path)
+        if canonical.split('/', 1)[0] in RESERVED_DELETION_ROOTS:
+            raise ValueError(f"cannot delete managed update path: {canonical}")
+        if canonical in archived_paths:
+            raise ValueError(f"path cannot be both archived and deleted: {canonical}")
+        if canonical in seen:
+            raise ValueError(f"duplicate deletion path: {canonical}")
+        seen.add(canonical)
+        normalized.append(canonical)
+        if len(normalized) > MAX_DELETION_PATHS:
+            raise ValueError("deletion manifest exceeds path-count limit")
+    return normalized
+
+def create_hash_file(source_dir, temp_dir, hash_file_path, deletion_paths=None):
     """Create a hash file with SHA256 sums of all files to be included in the archive."""
     hash_data = {}
     
@@ -139,9 +163,13 @@ def create_hash_file(source_dir, temp_dir, hash_file_path):
                 hash_data[arcname] = file_hash
                 print(f"Added hash for {arcname}: {file_hash}")
     
-    # Write the hash data as JSON
+    deletions = normalize_deletion_paths(deletion_paths, hash_data)
+    # Preserve the legacy hash-only shape when no deletion is requested so
+    # releases remain installable by updaters predating deletion support.
+    manifest = ({"files": hash_data, "delete": deletions}
+                if deletions else hash_data)
     with open(hash_file_path, 'w') as hash_file:
-        json.dump(hash_data, hash_file, indent=2)
+        json.dump(manifest, hash_file, indent=2)
     
     print(f"Created JSON hash file at {hash_file_path}")
     return hash_file_path
@@ -160,14 +188,14 @@ def validate_module_uniqueness(temp_dir):
                 raise ValueError(f"module is packaged as both {previous} and {path}")
             modules[stem] = path
 
-def create_tar_archive(source_dir, tar_path, temp_dir):
+def create_tar_archive(source_dir, tar_path, temp_dir, deletion_paths=None):
     """Create tar archive from compiled .mpy files and root py files."""
     print(f"Creating TAR archive: {tar_path}")
     
     validate_module_uniqueness(temp_dir)
     # First create the hash file in the temp directory
     hash_file_path = os.path.join(temp_dir, HASH_FILENAME)
-    create_hash_file(source_dir, temp_dir, hash_file_path)
+    create_hash_file(source_dir, temp_dir, hash_file_path, deletion_paths)
     
     with tarfile.open(tar_path, "w") as tar:
         # Add the hash file as the first entry
@@ -205,9 +233,22 @@ def validate_tar_archive(tar_path):
         manifest_stream = archive.extractfile(members[0])
         if manifest_stream is None:
             raise ValueError("integrity.json cannot be read")
-        manifest = json.load(manifest_stream)
-        if not isinstance(manifest, dict):
+        manifest_document = json.load(manifest_stream)
+        if not isinstance(manifest_document, dict):
             raise ValueError("integrity.json must be an object")
+        if "files" in manifest_document or "delete" in manifest_document:
+            if set(manifest_document) != {"files", "delete"}:
+                raise ValueError("integrity.json has unsupported manifest fields")
+            manifest = manifest_document["files"]
+            deletions = manifest_document["delete"]
+            if not isinstance(manifest, dict) or not isinstance(deletions, list):
+                raise ValueError("invalid files or delete manifest field")
+        else:
+            manifest = manifest_document
+            deletions = []
+        normalized_deletions = normalize_deletion_paths(deletions, manifest)
+        if normalized_deletions != deletions:
+            raise ValueError("deletion paths must already be canonical")
         seen = set()
         files = set()
         total = 0
@@ -431,6 +472,10 @@ def main(argv=None):
         '--module-format', choices=['mpy', 'py'], default='mpy',
         help='Package compiled .mpy modules or debuggable .py sources',
     )
+    parser.add_argument(
+        '--delete', action='append', default=[], metavar='PATH',
+        help='Delete one application-relative path before merging the update; repeat as needed',
+    )
     
     args = parser.parse_args(argv)
     source_dir = os.path.abspath(args.source_dir)
@@ -467,7 +512,7 @@ def main(argv=None):
         
         # Step 2: Create temporary tar archive
         temp_tar = os.path.join(output_dir, 'temp_firmware.tar')
-        create_tar_archive(source_dir, temp_tar, temp_dir)
+        create_tar_archive(source_dir, temp_tar, temp_dir, args.delete)
         validate_tar_archive(temp_tar)
         
         # Step 3: Compress the tar file

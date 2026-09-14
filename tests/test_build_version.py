@@ -153,6 +153,37 @@ class BuildVersionTests(unittest.TestCase):
             with self.subTest(path=path):
                 with self.assertRaises(ValueError):
                     local_builder.validate_archive_path(path)
+
+    def test_deletion_manifest_is_validated_and_self_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            prepared = root / 'prepared'
+            source.mkdir()
+            prepared.mkdir()
+            (source / 'boot.py').write_text('print("boot")\n')
+            local_builder.create_tar_archive(
+                str(source), str(root / 'firmware.tar'), str(prepared),
+                ['lib/obsolete.mpy'])
+            local_builder.validate_tar_archive(str(root / 'firmware.tar'))
+            with tarfile.open(root / 'firmware.tar') as archive:
+                manifest = json.load(archive.extractfile('integrity.json'))
+            self.assertEqual(manifest['delete'], ['lib/obsolete.mpy'])
+
+    def test_deletion_manifest_rejects_duplicates_metadata_and_archived_paths(self):
+        self.assertEqual(
+            local_builder.normalize_deletion_paths(['lib/old.mpy']),
+            ['lib/old.mpy'])
+        for paths, archived in (
+                (['lib/old.mpy', 'lib/old.mpy'], ()),
+                (['integrity.json'], ()),
+                (['backup/boot.py'], ()),
+                (['system-config.json'], ()),
+                (['boot.py'], {'boot.py'}),
+                (['../escape.py'], ())):
+            with self.subTest(paths=paths):
+                with self.assertRaises(ValueError):
+                    local_builder.normalize_deletion_paths(paths, archived)
         with self.assertRaises(ValueError):
             local_builder.validate_archive_path('/'.join(['a'] * 13) + '.py')
 

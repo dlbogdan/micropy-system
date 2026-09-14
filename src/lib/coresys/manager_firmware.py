@@ -22,6 +22,11 @@ class FirmwareUpdater:
     MAX_ARCHIVE_TOTAL_BYTES = 2 * 1024 * 1024
     MAX_ARCHIVE_PATH_LENGTH = 192
     MAX_ARCHIVE_PATH_DEPTH = 12
+    MAX_DELETION_PATHS = 256
+    RESERVED_DELETION_ROOTS = (
+        "integrity.json", "backup", "update", "update.tmp.tar",
+        "update.tar.zlib", "__applying", "__updating",
+        "system-config.json", "version.txt")
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -838,17 +843,42 @@ class FirmwareUpdater:
         return result
 
     def _parse_sha256sums_file(self, extract_to_dir):
-        """Parse the integrity.txt file into a dictionary."""
+        """Parse legacy hashes or the hashes-plus-deletions manifest."""
         hash_file_path = f"{extract_to_dir}/integrity.json"
         try:
             with open(hash_file_path, 'r') as hash_file:
                 try:
                     # Parse as JSON
-                    hash_sums = ujson.load(hash_file)
-                    if not isinstance(hash_sums, dict):
+                    manifest = ujson.load(hash_file)
+                    if not isinstance(manifest, dict):
                         self.error = "Invalid hash file format: not a JSON object"
                         logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
                         return {}
+                    if "files" in manifest or "delete" in manifest:
+                        if set(manifest.keys()) != {"files", "delete"}:
+                            raise ValueError("Unsupported integrity manifest fields")
+                        hash_sums = manifest["files"]
+                        deletions = manifest["delete"]
+                        if not isinstance(hash_sums, dict) or not isinstance(deletions, list):
+                            raise ValueError("Invalid files or delete manifest field")
+                    else:
+                        hash_sums = manifest
+                        deletions = []
+                    seen_deletions = set()
+                    self.deletion_paths = []
+                    for path in deletions:
+                        canonical = self._validate_archive_path(path)
+                        if (canonical != path or
+                                canonical.split('/', 1)[0] in self.RESERVED_DELETION_ROOTS):
+                            raise ValueError("Invalid deletion path: %s" % path)
+                        if canonical in hash_sums:
+                            raise ValueError("Path is both archived and deleted: %s" % path)
+                        if canonical in seen_deletions:
+                            raise ValueError("Duplicate deletion path: %s" % path)
+                        seen_deletions.add(canonical)
+                        self.deletion_paths.append(canonical)
+                        if len(self.deletion_paths) > self.MAX_DELETION_PATHS:
+                            raise ValueError("Deletion manifest exceeds path-count limit")
                     return hash_sums
                 except Exception as json_err:
                     self.error = f"Failed to parse hash file as JSON: {str(json_err)}"
@@ -957,6 +987,7 @@ class FirmwareUpdater:
             
             # Reset hash_sums before beginning extraction
             self.hash_sums = {}
+            self.deletion_paths = []
             
             for entry in tar:  # Iterate through members
                 canonical_path = self._validate_archive_path(entry.name.rstrip('/'))
@@ -1019,6 +1050,15 @@ class FirmwareUpdater:
             return False
             
         logger.info(f"Firmware successfully extracted to {extract_to_dir}.", log_to_file=True)
+        return True
+
+    async def _apply_deletions(self):
+        """Delete explicitly listed active paths after rollback state is durable."""
+        for relative_path in self.deletion_paths:
+            canonical = self._validate_archive_path(relative_path)
+            logger.info(f"Deleting obsolete path: /{canonical}", log_to_file=True)
+            await self._remove_path_if_exists("/" + canonical)
+            await asyncio.sleep(0)
         return True
         
     async def _update_version_file(self):
@@ -1114,8 +1154,19 @@ class FirmwareUpdater:
             return False
 
 
-        logger.info("Copy files from /update to /.", log_to_file=True)
+        logger.info("Applying explicit deletions.", log_to_file=True)
         self._notify_progress("applying", 65, "Applying updated files to system...")
+        try:
+            await self._apply_deletions()
+        except Exception as e:
+            self.error = f"Failed to apply deletion manifest: {str(e)}"
+            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
+            self._notify_progress("applying", 70, "Restoring from backup due to deletion failure...")
+            await self.restore_from_backup()
+            await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=True)
+            return False
+
+        logger.info("Copy files from /update to /.", log_to_file=True)
         if not await self._move_from_update_to_root(extract_to_dir): # Pass extract_to_dir for cleanup
             logger.error(f"Update aborted due to overwrite failure: {self.error}", log_to_file=True)
             # Attempt to restore from backup if move fails, as system might be in inconsistent state

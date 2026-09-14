@@ -215,10 +215,10 @@ Define the archive as application-relative paths only. For the transitional inst
 
 #### 2.4 Represent file deletion
 
-- [ ] For the transitional root-merge installer, add an explicit deletion list to the manifest.
-- [ ] Validate deletion paths with the same strict normalization as archived files.
-- [ ] Apply deletions only after backup and applying-state persistence.
-- [ ] Remove the deletion mechanism when normal application updates exclusively replace inactive slots, except for explicitly managed persistent data migrations.
+- [x] For the transitional root-merge installer, add an explicit deletion list to the manifest.
+- [x] Validate deletion paths with the same strict normalization as archived files.
+- [x] Apply deletions only after backup and applying-state persistence.
+- [x] Remove the deletion mechanism when normal application updates exclusively replace inactive slots, except for explicitly managed persistent data migrations. (Recorded as an A/B migration requirement.)
 
 #### Acceptance criteria
 
