@@ -173,29 +173,20 @@ no assumptions about legitimate application directory names.
 
 ### Creating Firmware Bundles
 
-The transitional root-merge installer can explicitly remove obsolete files. Repeat
-`--delete` with canonical application-relative paths; deletions are validated by
-the builder, stored in `integrity.json`, and applied only after the device has
-completed its backup and persisted the applying marker:
-
-```sh
-python local_builder.py --source-dir device --output-dir build \
-  --model pico2-w-rp2350 --version 1.2.3 \
-  --delete lib/obsolete.mpy --delete app/retired.json
-```
-
-Deletion entries cannot target archive metadata or the exact path of a packaged
-file. This transitional mechanism will be retired when normal updates replace an
-inactive A/B application slot instead of merging into the active root.
-
-For A/B application releases, build an application-only image. The application
+Normal releases are A/B application-only images. The application
 source `main.py` is packaged as `app_entry.py`; stable root launchers and OTA
 infrastructure are excluded from normal slot releases:
 
 ```sh
 python local_builder.py --source-dir app --output-dir build \
-  --model pico2-w-rp2350 --version 2.0.0 --install-mode ab-slot
+  --model pico2-w-rp2350 --version 2.0.0
 ```
+
+The inactive slot is erased and rebuilt, so removed and renamed files disappear
+without deletion manifests. Root merge, full-root backup, and `/__applying`
+restore semantics are no longer part of normal OTA. Peak update storage is the
+active slot, old inactive slot, and compressed staging artifact; the installer
+reclaims the old inactive slot before streaming extraction when necessary.
 
 Firmware updates should be packaged as TAR archives with ZLIB compression, containing all files to be updated.
 

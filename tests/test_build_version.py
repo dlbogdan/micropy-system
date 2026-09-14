@@ -48,7 +48,7 @@ class BuildVersionTests(unittest.TestCase):
             self.assertEqual(local_builder.get_framework_build(), 'abc123')
             self.assertEqual(call.call_args.kwargs['cwd'], local_builder.FRAMEWORK_ROOT)
 
-    def test_framework_build_is_hashed_and_packaged(self):
+    def test_framework_build_is_not_packaged_in_application_slot(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / "source"
@@ -65,13 +65,9 @@ class BuildVersionTests(unittest.TestCase):
             local_builder.create_tar_archive(str(source), str(archive), str(temporary))
 
             with tarfile.open(archive) as release:
-                self.assertIn("framework-build.txt", release.getnames())
+                self.assertNotIn("framework-build.txt", release.getnames())
                 integrity = json.load(io.TextIOWrapper(release.extractfile("integrity.json")))
-                self.assertIn("framework-build.txt", integrity)
-                self.assertEqual(
-                    release.extractfile("framework-build.txt").read(),
-                    b"v1.2.3-4-gabc123 built 2026-09-14T08:00:00Z\n",
-                )
+                self.assertNotIn("framework-build.txt", integrity)
 
     def test_build_date_is_utc(self):
         build_date = local_builder.get_build_date()
@@ -154,7 +150,7 @@ class BuildVersionTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     local_builder.validate_archive_path(path)
 
-    def test_deletion_manifest_is_validated_and_self_checked(self):
+    def test_deletion_manifest_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             source = root / 'source'
@@ -162,32 +158,13 @@ class BuildVersionTests(unittest.TestCase):
             source.mkdir()
             prepared.mkdir()
             (source / 'boot.py').write_text('print("boot")\n')
-            local_builder.create_tar_archive(
-                str(source), str(root / 'firmware.tar'), str(prepared),
-                ['lib/obsolete.mpy'])
-            local_builder.validate_tar_archive(str(root / 'firmware.tar'))
-            with tarfile.open(root / 'firmware.tar') as archive:
-                manifest = json.load(archive.extractfile('integrity.json'))
-            self.assertEqual(manifest['delete'], ['lib/obsolete.mpy'])
-            raw_archive = (root / 'firmware.tar').read_bytes()
-            self.assertNotIn(b'././@PaxHeader', raw_archive)
-
-    def test_deletion_manifest_rejects_duplicates_metadata_and_archived_paths(self):
-        self.assertEqual(
-            local_builder.normalize_deletion_paths(['lib/old.mpy']),
-            ['lib/old.mpy'])
-        for paths, archived in (
-                (['lib/old.mpy', 'lib/old.mpy'], ()),
-                (['integrity.json'], ()),
-                (['backup/boot.py'], ()),
-                (['system-config.json'], ()),
-                (['boot.py'], {'boot.py'}),
-                (['../escape.py'], ())):
-            with self.subTest(paths=paths):
-                with self.assertRaises(ValueError):
-                    local_builder.normalize_deletion_paths(paths, archived)
-        with self.assertRaises(ValueError):
-            local_builder.validate_archive_path('/'.join(['a'] * 13) + '.py')
+            integrity = prepared / 'integrity.json'
+            integrity.write_text(json.dumps({
+                'files': {}, 'delete': ['lib/obsolete.mpy']}))
+            with tarfile.open(root / 'firmware.tar', 'w') as archive:
+                archive.add(integrity, arcname='integrity.json')
+            with self.assertRaisesRegex(ValueError, 'unsupported'):
+                local_builder.validate_tar_archive(str(root / 'firmware.tar'))
 
     def test_builder_self_validates_manifest_completeness(self):
         with tempfile.TemporaryDirectory() as directory:

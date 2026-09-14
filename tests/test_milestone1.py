@@ -91,6 +91,8 @@ class FirmwareUpdaterTests(unittest.TestCase):
             "mpy_sub_version": 3,
             "mpy_arch": "armv6m",
             "module_format": "mpy",
+            "install_mode": "ab-slot",
+            "uncompressed_size": 4096,
         }
         asset.update(changes.pop("asset", {}))
         release = {"tag_name": "v1.2.3", "assets": [asset]}
@@ -133,17 +135,17 @@ class FirmwareUpdaterTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.updater._validate_archive_path(path)
 
-    def test_integrity_manifest_accepts_validated_deletions(self):
+    def test_integrity_manifest_rejects_deletions(self):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, 'integrity.json').write_text(json.dumps({
                 'files': {'boot.py': 'digest'},
                 'delete': ['lib/obsolete.mpy'],
             }))
             hashes = self.updater._parse_sha256sums_file(directory)
-            self.assertEqual(hashes, {'boot.py': 'digest'})
-            self.assertEqual(self.updater.deletion_paths, ['lib/obsolete.mpy'])
+            self.assertEqual(hashes, {})
+            self.assertIn('unsupported', self.updater.error.lower())
 
-    def test_integrity_manifest_rejects_unsafe_or_conflicting_deletions(self):
+    def test_integrity_manifest_rejects_all_deletions(self):
         for deletion in ('../escape.py', 'boot.py', 'integrity.json',
                          'backup/boot.py', 'system-config.json'):
             with self.subTest(deletion=deletion), tempfile.TemporaryDirectory() as directory:
@@ -309,22 +311,10 @@ class FirmwareUpdaterTests(unittest.TestCase):
             self.assertEqual(self.updater.should_attempt_update(), (True, "Automatic update checks enabled"))
             self.assertFalse(Path(self.updater.update_flag_path).exists())
 
-    def test_type_change_removes_destination_before_rename(self):
-        with tempfile.TemporaryDirectory() as directory:
-            source_root = Path(directory) / "source"
-            destination_root = Path(directory) / "destination"
-            source_root.mkdir()
-            destination_root.mkdir()
-            (source_root / "item").write_text("replacement")
-            (destination_root / "item").mkdir()
-            (destination_root / "item" / "old").write_text("old")
-
-            result = asyncio.run(self.updater._merge_directories_recursive(
-                str(source_root), str(destination_root)))
-
-            self.assertTrue(result)
-            self.assertTrue((destination_root / "item").is_file())
-            self.assertEqual((destination_root / "item").read_text(), "replacement")
+    def test_root_merge_release_is_rejected(self):
+        release = self.release(asset={"install_mode": "root-merge"})
+        self.assertIsNone(self.updater._normalize_release(release, "1.2.3"))
+        self.assertIn("A/B", self.updater.error)
 
 
 if __name__ == "__main__":

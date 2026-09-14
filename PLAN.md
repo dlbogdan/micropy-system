@@ -329,19 +329,23 @@ Only begin this milestone after A/B fault tests pass consistently.
 
 #### Tasks
 
-- [ ] Remove `_backup_existing_files()` from the normal OTA path.
-- [ ] Remove `_move_from_update_to_root()` and recursive root merge.
-- [ ] Remove `/__applying` backup-restore semantics from ordinary application releases.
-- [ ] Remove root restore code or retain it only as a manually invoked emergency tool.
-- [ ] Remove deletion manifests for slot-local files.
-- [ ] Update flash-space calculations for two slots plus one compressed staging artifact.
-- [ ] Add an optional policy for deleting the old inactive slot only when space is needed for a future update.
+- [x] Remove `_backup_existing_files()` from the normal OTA path.
+- [x] Remove `_move_from_update_to_root()` and recursive root merge.
+- [x] Remove `/__applying` backup-restore semantics from ordinary application releases.
+- [x] Remove root restore code or retain it only as a manually invoked emergency tool.
+- [x] Remove deletion manifests for slot-local files.
+- [x] Update flash-space calculations for two slots plus one compressed staging artifact.
+- [x] Add an optional policy for deleting the old inactive slot only when space is needed for a future update.
 
 #### Acceptance criteria
 
 - The normal update path never recursively copies or replaces the live root application.
 - Recovery consists of selecting the previous slot, not rewriting root from backup.
-- Peak update flash use is measured and documented.
+- Peak update flash use is one active slot, one old inactive slot, and one
+  compressed staging artifact. Before extraction, the installer requires
+  `free bytes + old inactive-slot bytes >= projected TAR bytes`; it erases only
+  the inactive slot, streams the compressed artifact directly into it, and
+  never materializes an uncompressed TAR or root backup.
 
 ---
 

@@ -111,13 +111,6 @@ async def perform_firmware_update():
         logger.error("Boot: Firmware updater not available.", log_to_file=True)
         return
 
-    logger.info("Boot: Checking for previously interrupted update...", log_to_file=True)
-    if updater.was_interrupted_during_applying():
-        success = await updater.restore_from_backup()
-        if not success:
-            logger.error(f"Boot: Failed to restore from backup: {updater.error}", log_to_file=True)
-        return
-
     logger.info("Boot: Checking if update should be attempted...", log_to_file=True)
     should_attempt, message = updater.should_attempt_update()
     if not should_attempt:

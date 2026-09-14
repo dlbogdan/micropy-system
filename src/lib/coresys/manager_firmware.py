@@ -23,11 +23,6 @@ class FirmwareUpdater:
     MAX_ARCHIVE_TOTAL_BYTES = 2 * 1024 * 1024
     MAX_ARCHIVE_PATH_LENGTH = 192
     MAX_ARCHIVE_PATH_DEPTH = 12
-    MAX_DELETION_PATHS = 256
-    RESERVED_DELETION_ROOTS = (
-        "integrity.json", "backup", "update", "update.tmp.tar",
-        "update.tar.zlib", "__applying", "__updating",
-        "system-config.json", "version.txt")
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -88,14 +83,12 @@ class FirmwareUpdater:
         self.download_started = False
         self.firmware_download_path = '/update.tar.zlib'
         self.pending_update_version = None
-        self.pending_install_mode = "root-merge"
+        self.pending_install_mode = "ab-slot"
         self.pending_uncompressed_size = None
-        self.backup_dir = "/backup"
         self.hash_sums = {}
         
         # Flag file paths
         self.update_flag_path = '/__updating'
-        self.applying_flag_path = '/__applying'
         self.download_diagnostics_path = '/ota-download-diagnostics.json'
         
         self._initialized = True
@@ -383,23 +376,6 @@ class FirmwareUpdater:
     def is_download_done(self):
         return self.download_done
     
-    # Flag management methods
-    def was_interrupted_during_applying(self):
-        """Check if the system was interrupted during update application"""
-        try:
-            uos.stat(self.applying_flag_path)
-            return True
-        except OSError:
-            return False
-    
-    def remove_applying_flag(self):
-        """Remove the applying flag file"""
-        try:
-            uos.remove(self.applying_flag_path)
-            logger.info("Removed applying flag file.", log_to_file=True)
-        except OSError:
-            pass
-    
     def _cleanup_old_update_flag(self):
         """Remove the old update flag when updates are disabled"""
         try:
@@ -591,7 +567,7 @@ class FirmwareUpdater:
             "mpy_sub_version": selected_asset.get("mpy_sub_version") or latest_release.get("mpy_sub_version"),
             "mpy_arch": selected_asset.get("mpy_arch") or latest_release.get("mpy_arch"),
             "module_format": selected_asset.get("module_format") or latest_release.get("module_format") or "mpy",
-            "install_mode": selected_asset.get("install_mode") or latest_release.get("install_mode") or "root-merge",
+            "install_mode": selected_asset.get("install_mode") or latest_release.get("install_mode") or "ab-slot",
             "uncompressed_size": selected_asset.get("uncompressed_size") or latest_release.get("uncompressed_size"),
         }
         if normalized["model"] is None and normalized["filename"].startswith(self.device_model + "-"):
@@ -621,10 +597,10 @@ class FirmwareUpdater:
             if self.mpy_arch and normalized["mpy_arch"] != self.mpy_arch:
                 self.error = f"Release MPY architecture {normalized['mpy_arch']} does not match {self.mpy_arch}"
                 return None
-        if normalized["install_mode"] not in ("root-merge", "ab-slot"):
-            self.error = "Release has an unsupported install mode"
+        if normalized["install_mode"] != "ab-slot":
+            self.error = "Only A/B slot releases are supported"
             return None
-        if normalized["install_mode"] == "ab-slot" and not normalized["uncompressed_size"]:
+        if not normalized["uncompressed_size"]:
             self.error = "A/B release is missing uncompressed size"
             return None
         return normalized
@@ -747,7 +723,7 @@ class FirmwareUpdater:
         latest_version_str = latest_release.get("version", "0.0.0")
         
         self.pending_update_version = latest_version_str
-        self.pending_install_mode = latest_release.get("install_mode", "root-merge")
+        self.pending_install_mode = latest_release.get("install_mode", "ab-slot")
         self.pending_uncompressed_size = latest_release.get("uncompressed_size")
         self._notify_progress("downloading", 5, f"Preparing to download version {latest_version_str}")
 
@@ -872,31 +848,9 @@ class FirmwareUpdater:
                         logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
                         return {}
                     if "files" in manifest or "delete" in manifest:
-                        if set(manifest.keys()) != {"files", "delete"}:
-                            raise ValueError("Unsupported integrity manifest fields")
-                        hash_sums = manifest["files"]
-                        deletions = manifest["delete"]
-                        if not isinstance(hash_sums, dict) or not isinstance(deletions, list):
-                            raise ValueError("Invalid files or delete manifest field")
-                    else:
-                        hash_sums = manifest
-                        deletions = []
-                    seen_deletions = set()
-                    self.deletion_paths = []
-                    for path in deletions:
-                        canonical = self._validate_archive_path(path)
-                        if (canonical != path or
-                                canonical.split('/', 1)[0] in self.RESERVED_DELETION_ROOTS):
-                            raise ValueError("Invalid deletion path: %s" % path)
-                        if canonical in hash_sums:
-                            raise ValueError("Path is both archived and deleted: %s" % path)
-                        if canonical in seen_deletions:
-                            raise ValueError("Duplicate deletion path: %s" % path)
-                        seen_deletions.add(canonical)
-                        self.deletion_paths.append(canonical)
-                        if len(self.deletion_paths) > self.MAX_DELETION_PATHS:
-                            raise ValueError("Deletion manifest exceeds path-count limit")
-                    return hash_sums
+                        raise ValueError(
+                            "Deletion manifests are unsupported by A/B slot images")
+                    return manifest
                 except Exception as json_err:
                     self.error = f"Failed to parse hash file as JSON: {str(json_err)}"
                     logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
@@ -1004,7 +958,6 @@ class FirmwareUpdater:
             
             # Reset hash_sums before beginning extraction
             self.hash_sums = {}
-            self.deletion_paths = []
             
             for entry in tar:  # Iterate through members
                 canonical_path = self._validate_archive_path(entry.name.rstrip('/'))
@@ -1075,6 +1028,7 @@ class FirmwareUpdater:
         inactive = "b" if state["active"] == "a" else "a"
         destination = "/apps/" + inactive
         required = int(self.pending_uncompressed_size or 0)
+        # Keep the old inactive slot until a future update needs its space.
         reclaimable = (self._directory_size(destination)
                        if self._path_exists(destination) else 0)
         free = uos.statvfs('/')[0] * uos.statvfs('/')[3]
@@ -1083,6 +1037,10 @@ class FirmwareUpdater:
                 required, free + reclaimable)
             return False
 
+        if free < required:
+            logger.info(
+                "Reclaiming old inactive slot %s for candidate image" % inactive,
+                log_to_file=True)
         await self._remove_path_if_exists(destination)
         self._mkdirs(destination)
         compressed = None
@@ -1115,187 +1073,14 @@ class FirmwareUpdater:
         self.pending_update_version = None
         return True
 
-    async def _apply_deletions(self):
-        """Delete explicitly listed active paths after rollback state is durable."""
-        for relative_path in self.deletion_paths:
-            canonical = self._validate_archive_path(relative_path)
-            logger.info(f"Deleting obsolete path: /{canonical}", log_to_file=True)
-            await self._remove_path_if_exists("/" + canonical)
-            await asyncio.sleep(0)
-        return True
-        
-    async def _update_version_file(self):
-        """Update the version file with the pending version."""
-        if not self.pending_update_version:
-            logger.info("Skipping version file update: No pending version was set.", log_to_file=True)
-            return True
-
-        logger.info(f"Finalizing update: Writing version {self.pending_update_version} to /version.txt...", log_to_file=True)
-
-        try:
-            with open('/version.txt', 'w') as vf:
-                vf.write(self.pending_update_version)
-            self.current_version = self.pending_update_version
-            self.pending_update_version = None  # Clear after successful write
-            return True
-            
-        except Exception as e:
-            self.error = f"Critical error: Failed to update version file to {self.pending_update_version} after file system operations: {str(e)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            return False
-        
     async def apply_update(self):
-        """Apply the downloaded firmware update."""
+        """Apply a downloaded application image to the inactive A/B slot."""
         self.error = None
-        compressed_file_path = self.firmware_download_path
-        decompressed_tar_path = "/update.tmp.tar"
-        extract_to_dir = "/update"
-        
         self._notify_progress("applying", 0, "Starting update application...")
-
-        if self.pending_install_mode == "ab-slot":
-            return await self._install_inactive_slot()
-        
-        try:
-            if not self._check_update_archive_exists(compressed_file_path):
-                # No archive, so no temp files to clean beyond what _check_update_archive_exists might imply
-                self._notify_progress("applying", 100, "Update archive not found", error="Archive not found")
-                return False
-        except Exception:
-            # Error already set and logged in _check_update_archive_exists
-            # No specific temp files created yet to clean here.
-            self._notify_progress("applying", 100, "Error accessing update archive", error=self.error)
+        if self.pending_install_mode != "ab-slot":
+            self.error = "Only A/B slot releases can be applied"
             return False
-            
-        logger.info(f"Applying update from {compressed_file_path}...", log_to_file=True)
-        self._notify_progress("applying", 10, "Decompressing firmware archive...")
-        
-        decompression_success = await self._decompress_firmware(compressed_file_path, decompressed_tar_path)
-        if not decompression_success:
-            # Cleanup only the decompressed tar path if it was created
-            await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=False)
-            logger.error("Decompression failed, cannot proceed. Update aborted.", log_to_file=True)
-            self._notify_progress("applying", 100, "Decompression failed", error=self.error)
-            return False
-            
-        self._notify_progress("applying", 25, "Extracting firmware files...")
-        extraction_success = await self._extract_firmware(decompressed_tar_path, extract_to_dir)
-        if not extraction_success:
-            # Cleanup decompressed tar and potentially partially extracted directory
-            await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=True)
-            logger.error("Extraction failed, update aborted.", log_to_file=True)
-            self._notify_progress("applying", 100, "Extraction failed", error=self.error)
-            return False
-
-        if self.core_system_files:
-            self._notify_progress("applying", 35, "Checking core system files...")
-            logger.info("Checking for core system files in the update package...", log_to_file=True)
-            if not self._check_core_files_exist(extract_to_dir):
-                logger.error(f"Core system file check failed: {self.error}. Aborting update.", log_to_file=True)
-                await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=True)
-                self._notify_progress("applying", 100, "Core system file check failed", error=self.error)
-                return False
-            logger.info("Core system files check passed.", log_to_file=True)
-            
-        logger.info("Backup existing files.", log_to_file=True)
-        self._notify_progress("applying", 45, "Backing up existing files...")
-        if not await self._backup_existing_files():
-            logger.error(f"Update aborted due to backup failure: {self.error}", log_to_file=True)
-            await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=True)
-            self._notify_progress("applying", 100, "Backup failed", error=self.error)
-            return False
-
-        # Create /__applying flag before starting irreversible operations
-        logger.info("Creating /__applying flag file...", log_to_file=True)
-        self._notify_progress("applying", 55, "Creating applying flag...")
-        try:
-            with open('/__applying', 'w') as _:
-                pass # Create an empty file
-            logger.info("Created /__applying flag file.", log_to_file=True)
-        except Exception as e:
-            self.error = f"Failed to create /__applying flag: {str(e)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=True)
-            self._notify_progress("applying", 100, "Failed to create applying flag", error=self.error)
-            return False
-
-
-        logger.info("Applying explicit deletions.", log_to_file=True)
-        self._notify_progress("applying", 65, "Applying updated files to system...")
-        try:
-            await self._apply_deletions()
-        except Exception as e:
-            self.error = f"Failed to apply deletion manifest: {str(e)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            self._notify_progress("applying", 70, "Restoring from backup due to deletion failure...")
-            await self.restore_from_backup()
-            await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=True)
-            return False
-
-        logger.info("Copy files from /update to /.", log_to_file=True)
-        if not await self._move_from_update_to_root(extract_to_dir): # Pass extract_to_dir for cleanup
-            logger.error(f"Update aborted due to overwrite failure: {self.error}", log_to_file=True)
-            # Attempt to restore from backup if move fails, as system might be in inconsistent state
-            logger.info("Attempting to restore from backup due to overwrite failure...", log_to_file=True)
-            self._notify_progress("applying", 70, "Restoring from backup due to failure...")
-            await self.restore_from_backup() # Logged internally
-            await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=False, cleanup_extracted_dir=True)
-            self._notify_progress("applying", 100, "File overwrite failed", error=self.error)
-            return False
-            
-        self._notify_progress("applying", 85, "Updating version file...")
-        version_update_success = await self._update_version_file()
-        # We proceed to cleanup and reboot even if version update fails, logging the error.
-        if not version_update_success:
-            logger.error(f"Failed to update version file (error: {self.error}), but continuing to finalize update.", log_to_file=True)
-
-        logger.info("Update process appears successful. Performing final cleanup...", log_to_file=True)
-        self._notify_progress("applying", 95, "Cleaning up temporary files...")
-        await self._cleanup_temp_update_files(compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=True, cleanup_extracted_dir=True)
-        # Step 7.5: Remove __applying flag file
-        self.remove_applying_flag()
-            
-        logger.info("System update successfully applied. Rebooting device...", log_to_file=True)
-        
-        # Automatically clean up success flags since update was successful
-        self._cleanup_success_flags()
-        
-        self._notify_progress("applying", 100, "Update completed successfully. Rebooting...")
-        await asyncio.sleep(1)  # Brief pause for logs to potentially flush
-        #machine.reset()
-        
-        return True
-
-    async def _copy_item_recursive(self, source_path, dest_path):
-        # Ensure parent of dest_path exists for the current item being copied
-        dest_parent_dir = dest_path.rpartition('/')[0]
-        if dest_parent_dir and dest_parent_dir != "/": # Avoid trying to mkdir "/" or empty string
-            self._mkdirs(dest_parent_dir) # _mkdirs handles existing dirs
-
-        s_stat = uos.stat(source_path)
-        is_dir = (s_stat[0] & 0x4000) != 0 # S_IFDIR check
-
-        if is_dir:
-            self._mkdirs(dest_path) # Create the directory itself in destination
-            log_msg = f"Copying dir: {source_path} to {dest_path}"
-            logger.info(log_msg, log_to_file=True)
-            for item_name in uos.listdir(source_path):
-                await self._copy_item_recursive(f"{source_path.rstrip('/')}/{item_name}", f"{dest_path.rstrip('/')}/{item_name}")
-                await asyncio.sleep(0) # Yield during directory iteration
-        else: # Is a file
-            log_msg = f"Copying file: {source_path} to {dest_path}"
-            logger.info(log_msg, log_to_file=True)
-            try:
-                with open(source_path, 'rb') as src_f, open(dest_path, 'wb') as dst_f:
-                    while True:
-                        chunk = src_f.read(self.chunk_size) 
-                        led_pin.toggle()
-                        if not chunk: break
-                        dst_f.write(chunk)
-                        await asyncio.sleep(0) # Yield after each chunk
-                    led_pin.off()
-            except Exception as e:
-                raise Exception(f"Failed to copy file {source_path} to {dest_path}: {str(e)}")
+        return await self._install_inactive_slot()
 
     async def _remove_dir_recursive(self, dir_path):
         log_msg = f"Recursively removing directory: {dir_path}"
@@ -1324,91 +1109,6 @@ class FirmwareUpdater:
                  logger.warning(f"FirmwareUpdater: {err_msg_item}", log_to_file=True)
             await asyncio.sleep(0) # Yield
         uos.rmdir(dir_path)
-
-    async def _backup_existing_files(self):
-        step_msg = "Backing up existing system files..."
-        logger.info(step_msg, log_to_file=True)
-        
-        backup_dir = "/backup"
-        backup_new = "/backup.new"
-        backup_old = "/backup.old"
-        # Exclude backup dir, update dir, temp files, logs, and sensitive configs
-        excluded_top_level_items = [
-            backup_dir,
-            backup_new,
-            backup_old,
-            "/update", 
-            self.firmware_download_path, # /update.tar.zlib
-            "/update.tmp.tar",
-            "/log.txt",
-            "/__updating",
-            "/__updating.new",
-            "/__applying",
-            self.download_diagnostics_path,
-            self.download_diagnostics_path + ".new",
-            "/ota-state.json",
-            "/ota-state.new",
-            "/ota-state.bak",
-            "/staging"
-        ]
-        try:
-            await self._remove_path_if_exists(backup_new)
-            self._mkdirs(backup_new)
-
-            required_bytes = self._directory_size("/", excluded_top_level_items)
-            free_bytes = self._free_bytes("/")
-            if free_bytes < required_bytes:
-                self.error = f"Insufficient space for backup: need {required_bytes}, have {free_bytes}"
-                await self._remove_path_if_exists(backup_new)
-                return False
-            
-            root_items = uos.listdir("/")
-            for item_name in root_items:
-                # Construct full source path from root
-                source_path = f"/{item_name.lstrip('/')}"
-                
-                if source_path in excluded_top_level_items:
-                    skip_msg = f"Backup: Skipping excluded top-level item: {source_path}"
-                    logger.info(skip_msg, log_to_file=True)
-                    continue
-
-                # Construct full destination path within backup_dir
-                dest_path = f"{backup_new.rstrip('/')}{source_path}"
-                try:
-                    await self._copy_item_recursive(source_path, dest_path)
-                except Exception as e_copy:
-                    self.error = f"Backup error for {source_path} to {dest_path}: {str(e_copy)}"
-                    logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-                    await self._remove_path_if_exists(backup_new)
-                    return False # Abort backup on first error
-                await asyncio.sleep(0) # Yield between top-level items
-            
-            await self._remove_path_if_exists(backup_old)
-
-            backup_bytes = self._directory_size(backup_new)
-            if backup_bytes != required_bytes:
-                self.error = f"Incomplete backup: expected {required_bytes} bytes, copied {backup_bytes}"
-                await self._remove_path_if_exists(backup_new)
-                return False
-
-            had_previous_backup = self._path_exists(backup_dir)
-            if had_previous_backup:
-                uos.rename(backup_dir, backup_old)
-            try:
-                uos.rename(backup_new, backup_dir)
-            except Exception:
-                if had_previous_backup and self._path_exists(backup_old):
-                    uos.rename(backup_old, backup_dir)
-                raise
-            await self._remove_path_if_exists(backup_old)
-
-            success_msg = "Backup completed and promoted successfully."
-            logger.info(success_msg, log_to_file=True)
-            return True
-        except Exception as e_main:
-            self.error = f"Backup process failed: {str(e_main)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            return False
 
     async def _remove_path_if_exists(self, path):
         if not self._path_exists(path):
@@ -1459,184 +1159,6 @@ class FirmwareUpdater:
                 return False
             else:
                 raise e
-
-    async def _merge_directories_recursive(self, source_dir, dest_dir):
-        """Recursively merge source directory into destination directory using atomic operations"""
-        logger.info(f"Merging directory: {source_dir} -> {dest_dir}", log_to_file=True)
-        
-        try:
-            # Check if source directory exists
-            if not self._path_exists(source_dir):
-                logger.warning(f"Source directory doesn't exist: {source_dir}", log_to_file=True)
-                return True
-            
-            # Ensure destination directory exists
-            if not self._path_exists(dest_dir):
-                # Destination doesn't exist - we can just rename the entire directory atomically
-                logger.info(f"Destination directory doesn't exist, atomic move: {source_dir} -> {dest_dir}", log_to_file=True)
-                uos.rename(source_dir, dest_dir)
-                return True
-            
-            # Both directories exist, need to merge contents
-            source_items = uos.listdir(source_dir)
-            
-            for item_name in source_items:
-                source_item = f"{source_dir.rstrip('/')}/{item_name}"
-                dest_item = f"{dest_dir.rstrip('/')}/{item_name}"
-                
-                # Safety check - skip dangerous system paths when merging to root
-                if dest_dir == "/" and item_name in ["dev", "proc", "sys", "boot"]:
-                    logger.warning(f"Skipping system directory: {dest_item}", log_to_file=True)
-                    continue
-                
-                source_is_dir = self._is_existing_path_a_directory(source_item)
-                dest_exists = self._path_exists(dest_item)
-                dest_is_dir = dest_exists and self._is_existing_path_a_directory(dest_item)
-                
-                if not dest_exists:
-                    # Destination doesn't exist - atomic move
-                    logger.info(f"Atomic move: {source_item} -> {dest_item}", log_to_file=True)
-                    uos.rename(source_item, dest_item)
-                    
-                elif source_is_dir and dest_is_dir:
-                    # Both are directories - recurse
-                    logger.info(f"Recursing into directories: {source_item} -> {dest_item}", log_to_file=True)
-                    if not await self._merge_directories_recursive(source_item, dest_item):
-                        return False
-                    
-                elif not source_is_dir and not dest_is_dir:
-                    # Both are files - atomic replacement
-                    logger.info(f"Atomic file replacement: {source_item} -> {dest_item}", log_to_file=True)
-                    uos.rename(source_item, dest_item)
-                    
-                else:
-                    # MicroPython rename-overwrite behavior differs by source and
-                    # destination type, so remove the conflicting destination first.
-                    logger.info(f"Explicit type replacement: {source_item} -> {dest_item}", log_to_file=True)
-                    await self._remove_path_if_exists(dest_item)
-                    uos.rename(source_item, dest_item)
-                
-                await asyncio.sleep(0)  # Yield control
-            
-            # Try to remove now-empty source directory
-            try:
-                uos.rmdir(source_dir)
-                logger.info(f"Removed empty source directory: {source_dir}", log_to_file=True)
-            except OSError as e:
-                # Directory not empty (shouldn't happen) or other error
-                logger.warning(f"Could not remove source directory {source_dir}: {e}", log_to_file=True)
-            
-            return True
-            
-        except Exception as e:
-            self.error = f"Directory merge failed for {source_dir} -> {dest_dir}: {str(e)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            return False
-
-    async def _move_from_update_to_root(self, update_source_dir): # Added update_source_dir parameter
-        """Move files from update to root using recursive directory merging with atomic operations"""
-        step_msg = "Moving updated files from /update to / using atomic operations..."
-        logger.info(step_msg, log_to_file=True)
-        
-        try:
-            if not self._path_exists(update_source_dir):
-                warn_msg = f"Warning: Update source directory '{update_source_dir}' not found. Nothing to move."
-                logger.warning(warn_msg, log_to_file=True)
-                return True # Nothing to move, so operation is vacuously successful.
-
-            # Simply merge the update directory into root using recursive atomic operations
-            success = await self._merge_directories_recursive(update_source_dir, "/")
-            
-            if success:
-                logger.info("Atomic recursive merge completed successfully.", log_to_file=True)
-            else:
-                logger.error("Atomic recursive merge failed.", log_to_file=True)
-                
-            return success
-            
-        except Exception as e_main_move:
-            self.error = f"Atomic file move process failed: {str(e_main_move)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            return False
-
-    async def restore_from_backup(self):
-        """Restore system files from backup after failed update."""
-        self.error = None
-        logger.info("Attempting to restore system from backup...", log_to_file=True)
-        self._notify_progress("restoring", 0, "Starting system restore from backup...")
-        
-        # Check if backup directory exists
-        try:
-            if not self.backup_dir.strip('/') in uos.listdir('/'):
-                self.error = f"Backup directory {self.backup_dir} not found"
-                logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-                self._notify_progress("restoring", 100, "Backup directory not found", error=self.error)
-                return False
-        except Exception as e:
-            self.error = f"Error checking backup directory: {str(e)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            self._notify_progress("restoring", 100, "Error checking backup directory", error=self.error)
-            return False
-            
-        try:
-            # List all files and directories in backup
-            self._notify_progress("restoring", 10, "Scanning backup directory...")
-            items = uos.listdir(self.backup_dir)
-            if not items:
-                self.error = "Backup directory is empty"
-                logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-                self._notify_progress("restoring", 100, "Backup directory is empty", error=self.error)
-                return False
-                
-            # Process each item in the backup directory
-            total_items = len(items)
-            for i, item_name in enumerate(items):
-                progress = 20 + int((i / total_items) * 70)  # 20-90% for file restoration
-                self._notify_progress("restoring", progress, f"Restoring {item_name}...")
-                source_path = f"{self.backup_dir.rstrip('/')}/{item_name}"
-                dest_path = f"/{item_name}"
-                
-                # Check if destination already exists and remove it
-                try:
-                    uos.stat(dest_path)  # Check if exists
-                    s_stat_dest = uos.stat(dest_path)
-                    is_dir_dest = (s_stat_dest[0] & 0x4000) != 0
-                    if is_dir_dest:
-                        logger.info(f"Removing existing directory before restore: {dest_path}", log_to_file=True)
-                        await self._remove_dir_recursive(dest_path)
-                    else:
-                        logger.info(f"Removing existing file before restore: {dest_path}", log_to_file=True)
-                        uos.remove(dest_path)
-                except OSError as e:
-                    if e.args[0] == 2:  # ENOENT (file not found)
-                        pass  # Destination doesn't exist, which is fine
-                    else:
-                        logger.warning(f"Error checking/removing {dest_path}: {e}", log_to_file=True)
-                        # Continue with restoration - not critical if we can't remove
-                
-                # Copy from backup to root
-                try:
-                    logger.info(f"Restoring {source_path} to {dest_path}", log_to_file=True)
-                    await self._copy_item_recursive(source_path, dest_path)
-                except Exception as e_copy:
-                    self.error = f"Failed to restore {source_path} to {dest_path}: {str(e_copy)}"
-                    logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-                    return False
-                    
-                # Yield to prevent blocking for too long
-                await asyncio.sleep(0)
-                    
-            logger.info("System successfully restored from backup", log_to_file=True)
-            self._notify_progress("restoring", 100, "System successfully restored from backup")
-            self.remove_applying_flag()
-            return True
-            
-        except Exception as e:
-            self.error = f"System restore process failed: {str(e)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            self._notify_progress("restoring", 100, "System restore failed", error=self.error)
-            self.remove_applying_flag()  # Remove flag even on failure
-            return False
 
     def _check_core_files_exist(self, extract_to_dir):
         """Check if all core system files exist in the extracted update."""
