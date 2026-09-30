@@ -29,7 +29,7 @@ class FirmwareUpdater:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, device_model=None, github_repo=None, github_token="", chunk_size=2048, max_redirects=10, direct_base_url=None, core_system_files=None, update_on_boot=True, max_failure_attempts=3, progress_callback=None, request_timeout_ms=15000, runtime_version="1.29.0", mpy_version=6, mpy_sub_version=3, mpy_arch=None):
+    def __init__(self, device_model=None, github_repo=None, github_token="", chunk_size=2048, max_redirects=10, direct_base_url=None, update_on_boot=True, max_failure_attempts=3, progress_callback=None, request_timeout_ms=15000, runtime_version="1.29.0", mpy_version=6, mpy_sub_version=3, mpy_arch=None):
         # If already initialized, just update the progress callback if provided
         if self._initialized:
             if progress_callback is not None:
@@ -49,7 +49,6 @@ class FirmwareUpdater:
         self.github_token = github_token
         self.chunk_size = chunk_size
         self.max_redirects = max_redirects
-        self.core_system_files = core_system_files or []
         self.update_on_boot = update_on_boot
         self.max_failure_attempts = max_failure_attempts
         self.request_timeout_ms = request_timeout_ms
@@ -94,19 +93,10 @@ class FirmwareUpdater:
         self._initialized = True
 
     @classmethod
-    def get_instance(cls):
-        """Get the singleton instance if it exists."""
-        return cls._instance
-
-    @classmethod
     def reset_instance(cls):
         """Reset the singleton instance (mainly for testing)."""
         cls._instance = None
         cls._initialized = False
-
-    def set_progress_callback(self, callback):
-        """Set or update the progress callback function."""
-        self.progress_callback = callback
 
     def _notify_progress(self, stage, progress_percent=0, message="", error=None):
         """Notify progress callback if set."""
@@ -373,9 +363,6 @@ class FirmwareUpdater:
             return 0
         return int((self.bytes_read / self.total_size) * 100)
 
-    def is_download_done(self):
-        return self.download_done
-    
     def _cleanup_old_update_flag(self):
         """Remove the old update flag when updates are disabled"""
         try:
@@ -772,69 +759,6 @@ class FirmwareUpdater:
             raise ValueError(f"Unsafe archive path: {path}")
         return '/'.join(parts)
 
-    def _check_update_archive_exists(self, archive_path):
-        """Check if the update archive exists."""
-        try:
-            uos.stat(archive_path)
-            return True
-        except OSError as e:
-            if e.args[0] == 2:  # ENOENT - No such file or directory
-                msg = f"Update archive {archive_path} not found. Assuming already applied or download failed. Aborting apply phase."
-                logger.info(f"FirmwareUpdater: {msg}", log_to_file=True)
-                print(f"INFO: {msg}")
-                return False
-            else:
-                # Different OSError, perhaps permissions or other issue
-                self.error = f"Error accessing update archive {archive_path}: {str(e)}"
-                logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-                print(f"ERROR: {self.error}")
-                raise  # Re-raise to be caught by caller
-    
-    async def _decompress_firmware(self, compressed_path, decompressed_path)->bool:
-        """Decompress the zlib-compressed firmware file."""
-        logger.info(f"Decompressing {compressed_path} to {decompressed_path}...", log_to_file=True)
-
-        f_zlib = None
-        d_stream = None
-        f_tar_out = None
-        result = True
-        try:
-            f_zlib = open(compressed_path, "rb")
-            # Using positional arguments for DeflateIO: stream, format, wbits
-            # format=deflate.ZLIB, wbits=0 (for auto window size from header)
-            d_stream = deflate.DeflateIO(f_zlib, deflate.ZLIB, 0) 
-            f_tar_out = open(decompressed_path, "wb")
-
-            chunk_size = 512 
-            while True:
-                chunk = d_stream.read(chunk_size)
-                if not chunk: break
-                f_tar_out.write(chunk)
-                led_pin.toggle()
-                await asyncio.sleep(0) 
-            led_pin.off()
-
-
-        except Exception as e:
-            self.error = f"Decompression failed: {str(e)}"
-            logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-            result = False
-
-        finally:
-            if f_zlib:
-                try: f_zlib.close()
-                except Exception as e_close:
-                    print(f"Error closing f_zlib: {e_close}")
-            if d_stream:
-                try: d_stream.close()
-                except Exception as e_close:
-                    print(f"Error closing d_stream: {e_close}")
-            if f_tar_out:
-                try: f_tar_out.close()
-                except Exception as e_close:
-                    print(f"Error closing f_tar_out: {e_close}")
-        return result
-
     def _parse_sha256sums_file(self, extract_to_dir):
         """Parse legacy hashes or the hashes-plus-deletions manifest."""
         hash_file_path = f"{extract_to_dir}/integrity.json"
@@ -1118,11 +1042,6 @@ class FirmwareUpdater:
         else:
             uos.remove(path)
 
-    @staticmethod
-    def _free_bytes(path):
-        stat = uos.statvfs(path)
-        return stat[0] * stat[3]
-
     def _directory_size(self, path, excluded_top_level_items=None):
         """Return logical file bytes below path, excluding selected root paths."""
         excluded = excluded_top_level_items or []
@@ -1159,86 +1078,3 @@ class FirmwareUpdater:
                 return False
             else:
                 raise e
-
-    def _check_core_files_exist(self, extract_to_dir):
-        """Check if all core system files exist in the extracted update."""
-        if not self.core_system_files:
-            logger.info("No core system files defined. Skipping check.", log_to_file=True)
-            return True # Nothing to check, so it passes
-
-        missing_files = []
-        for core_file_rel_path in self.core_system_files:
-            # Ensure core_file_rel_path is relative and doesn't start with /
-            normalized_path = core_file_rel_path.lstrip('/')
-            full_path_to_check = f"{extract_to_dir.rstrip('/')}/{normalized_path}"
-            try:
-                uos.stat(full_path_to_check)
-                logger.info(f"Core file found: {full_path_to_check}", log_to_file=True)
-            except OSError as e:
-                if e.args[0] == 2: # ENOENT - No such file or directory
-                    missing_files.append(normalized_path)
-                    logger.error(f"Core file MISSING: {full_path_to_check}", log_to_file=True)
-                else:
-                    # Other OSError (e.g., permission denied)
-                    self.error = f"Error accessing potential core file {full_path_to_check}: {str(e)}"
-                    logger.error(f"FirmwareUpdater: {self.error}", log_to_file=True)
-                    return False # Abort on access error
-
-        if missing_files:
-            self.error = f"Update aborted: Missing core system files in package: {', '.join(missing_files)}"
-            # Logger error is already done per file, this is a summary.
-            return False
-        
-        return True
-
-    async def _cleanup_temp_update_files(self, compressed_file_path, decompressed_tar_path, extract_to_dir, cleanup_archive=True, cleanup_extracted_dir=True):
-        """Clean up temporary files and directories used during the update process."""
-        logger.info("Cleaning up temporary update files...", log_to_file=True)
-        
-        # Remove decompressed tar file
-        if decompressed_tar_path:
-            try:
-                uos.stat(decompressed_tar_path) # Check if it exists before trying to remove
-                uos.remove(decompressed_tar_path)
-                logger.info(f"Removed temporary decompressed file: {decompressed_tar_path}", log_to_file=True)
-            except OSError as e:
-                if e.args[0] == 2: # ENOENT
-                    logger.info(f"Temporary decompressed file not found (already removed?): {decompressed_tar_path}", log_to_file=True)
-                else:
-                    logger.warning(f"Could not remove temporary decompressed file {decompressed_tar_path}: {str(e)}", log_to_file=True)
-        
-        # Remove extracted update directory
-        if cleanup_extracted_dir and extract_to_dir:
-            try:
-                # Check if extract_to_dir exists as a directory
-                s_stat = uos.stat(extract_to_dir)
-                is_dir = (s_stat[0] & 0x4000) != 0
-                if is_dir:
-                    await self._remove_dir_recursive(extract_to_dir)
-                    logger.info(f"Removed temporary extraction directory: {extract_to_dir}", log_to_file=True)
-                else: # It exists but is not a directory (should not happen if extraction was successful)
-                    logger.warning(f"Temporary extraction path {extract_to_dir} exists but is not a directory. Attempting to remove as file.", log_to_file=True)
-                    uos.remove(extract_to_dir)
-            except OSError as e:
-                if e.args[0] == 2: # ENOENT
-                     logger.info(f"Temporary extraction directory not found (already removed?): {extract_to_dir}", log_to_file=True)
-                else:
-                    logger.warning(f"Could not remove temporary extraction directory {extract_to_dir}: {str(e)}", log_to_file=True)
-            except Exception as e_rec: # Catch errors from _remove_dir_recursive
-                logger.error(f"Error during recursive removal of {extract_to_dir}: {e_rec}", log_to_file=True)
-
-        # Optionally remove the original downloaded archive
-        if cleanup_archive and compressed_file_path:
-            try:
-                uos.stat(compressed_file_path) # Check if it exists
-                uos.remove(compressed_file_path)
-                logger.info(f"Removed downloaded update archive: {compressed_file_path}", log_to_file=True)
-            except OSError as e:
-                if e.args[0] == 2: # ENOENT
-                    logger.info(f"Downloaded update archive not found (already removed?): {compressed_file_path}", log_to_file=True)
-                else:
-                    logger.warning(f"Could not remove downloaded update archive {compressed_file_path}: {str(e)}", log_to_file=True)
-        logger.info("Temporary file cleanup finished.", log_to_file=True)
-
-# Example usage (conceptual, assuming an event loop is running):
-# async def main():

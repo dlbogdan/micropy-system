@@ -42,7 +42,6 @@ def create_firmware_updater():
     """Create and initialize firmware updater based on configuration"""
     try:
         # Extract all firmware config values
-        core_system_files = sys_config.get("FIRMWARE", "CORE_SYSTEM_FILES", [])
         direct_base_url = sys_config.get("FIRMWARE", "DIRECT_BASE_URL", None)
         github_repo = sys_config.get("FIRMWARE", "GITHUB_REPO", None)
         github_token = sys_config.get("FIRMWARE", "GITHUB_TOKEN", "")
@@ -69,7 +68,6 @@ def create_firmware_updater():
             chunk_size=chunk_size,
             max_redirects=max_redirects,
             direct_base_url=direct_base_url,
-            core_system_files=core_system_files,
             update_on_boot=update_on_boot,
             max_failure_attempts=max_failure_attempts,
             progress_callback=boot_progress_callback,
