@@ -81,130 +81,10 @@ write_file .vscode/settings.json <<'EOF'
 }
 EOF
 
-write_file tools/update_framework.sh <<EOF
-#!/bin/sh
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-SUBMODULE="$SUBMODULE_PATH"
-git -C "\$APP_ROOT" submodule update --init "\$SUBMODULE"
-git -C "\$APP_ROOT/\$SUBMODULE" fetch origin main
-git -C "\$APP_ROOT/\$SUBMODULE" checkout main
-git -C "\$APP_ROOT/\$SUBMODULE" merge --ff-only origin/main
-echo "Framework updated. Review and commit the submodule pointer:"
-echo "  git add \$SUBMODULE && git commit -m 'Update micropy-system framework'"
-EOF
-
-write_file tools/assemble.py <<EOF
-#!/usr/bin/env python3
-"""Shim: the canonical assembler lives in the micropy-system framework ($SUBMODULE_PATH/tools/assemble.py)."""
-import os, sys
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.environ["MICROPY_APP_ROOT"] = ROOT
-os.execv(sys.executable, [sys.executable,
-    os.path.join(ROOT, "$SUBMODULE_PATH", "tools", "assemble.py"),
-    "--app-root", ROOT] + sys.argv[1:])
-EOF
-
-write_file tools/device.py <<EOF
-#!/usr/bin/env python3
-"""Shim: the canonical USB device CLI lives in the micropy-system framework ($SUBMODULE_PATH/tools/device.py)."""
-import os, sys
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.environ["MICROPY_APP_ROOT"] = ROOT
-os.execv(sys.executable, [sys.executable,
-    os.path.join(ROOT, "$SUBMODULE_PATH", "tools", "device.py")] + sys.argv[1:])
-EOF
-
-write_file tools/console.py <<EOF
-#!/usr/bin/env python3
-"""Shim: the canonical network REPL client lives in the micropy-system framework ($SUBMODULE_PATH/tools/console.py)."""
-import os, sys
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.environ["MICROPY_APP_ROOT"] = ROOT
-os.execv(sys.executable, [sys.executable,
-    os.path.join(ROOT, "$SUBMODULE_PATH", "tools", "console.py")] + sys.argv[1:])
-EOF
-
-write_file tools/discover.py <<EOF
-#!/usr/bin/env python3
-"""Shim: the canonical LAN scanner lives in the micropy-system framework ($SUBMODULE_PATH/tools/discover.py)."""
-import os, sys
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-os.environ["MICROPY_APP_ROOT"] = ROOT
-os.execv(sys.executable, [sys.executable,
-    os.path.join(ROOT, "$SUBMODULE_PATH", "tools", "discover.py")] + sys.argv[1:])
-EOF
-
-write_file tools/provision.sh <<EOF
-#!/bin/sh
-# Shim: the canonical provisioning engine lives in the micropy-system framework.
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-exec "\$APP_ROOT/$SUBMODULE_PATH/tools/provision.sh" \
-    --app-root "\$APP_ROOT" --boot-marker "entering main loop" "\$@"
-EOF
-
-write_file tools/setup_build_env.sh <<EOF
-#!/bin/sh
-# Shim: canonical venv setup lives in the framework ($SUBMODULE_PATH/tools/setup_build_env.sh).
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-exec "\$APP_ROOT/$SUBMODULE_PATH/tools/setup_build_env.sh" --app-root "\$APP_ROOT" "\$@"
-EOF
-
-write_file tools/build_firmware.sh <<EOF
-#!/bin/sh
-# Shim: canonical builder lives in the framework ($SUBMODULE_PATH/tools/build_firmware.sh).
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-exec "\$APP_ROOT/$SUBMODULE_PATH/tools/build_firmware.sh" --app-root "\$APP_ROOT" "\$@"
-EOF
-
-write_file tools/serve_update.sh <<EOF
-#!/bin/sh
-# Shim: canonical OTA update server lives in the framework ($SUBMODULE_PATH/tools/serve_update.sh).
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-exec "\$APP_ROOT/$SUBMODULE_PATH/tools/serve_update.sh" --app-root "\$APP_ROOT" "\$@"
-EOF
-
-write_file tools/release_github.sh <<EOF
-#!/bin/sh
-# Shim: canonical GitHub release cutter lives in the framework ($SUBMODULE_PATH/tools/release_github.sh).
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-exec "\$APP_ROOT/$SUBMODULE_PATH/tools/release_github.sh" --app-root "\$APP_ROOT" "\$@"
-EOF
-
-write_file tools/net.sh <<EOF
-#!/bin/sh
-# Shim: canonical device API client lives in the framework ($SUBMODULE_PATH/tools/net.sh).
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-exec "\$APP_ROOT/$SUBMODULE_PATH/tools/net.sh" --app-root "\$APP_ROOT" "\$@"
-EOF
-
-write_file tools/deploy.sh <<EOF
-#!/bin/sh
-# Shim: canonical deploy orchestrator lives in the framework ($SUBMODULE_PATH/tools/deploy.sh).
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-exec "\$APP_ROOT/$SUBMODULE_PATH/tools/deploy.sh" --app-root "\$APP_ROOT" "\$@"
-EOF
-
-write_file tools/device.sh <<EOF
-#!/bin/sh
-# Shim: run the canonical USB device CLI with the project's venv Python.
-set -eu
-APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-PY="\$APP_ROOT/.venv/bin/python"
-[ -x "\$PY" ] || PY=python3
-exec env MICROPY_APP_ROOT="\$APP_ROOT" "\$PY" "\$APP_ROOT/$SUBMODULE_PATH/tools/device.py" "\$@"
-EOF
+# Projects do not ship their own tools: every helper (setup, build, serve,
+# release, deploy, provision, device, net, framework update, debug capture)
+# lives in this framework's tools/ and is invoked from the project as
+#   ./$SUBMODULE_PATH/tools/<name>
 
 write_file app/main.py <<'EOF'
 import uasyncio as asyncio
@@ -338,50 +218,50 @@ jobs:
             --generate-notes
 EOF
 
-write_file README.md <<'EOF'
+write_file README.md <<EOF
 # MicroPython application
 
-This application uses `micropy-system` as a pinned Git submodule.
+This application uses \`micropy-system\` as a pinned Git submodule.
 
 ## Common commands
 
-```sh
+\`\`\`sh
 # One-time local toolchain setup
-tools/setup_build_env.sh
+$SUBMODULE_PATH/tools/setup_build_env.sh
 
 # Assemble and build app/version.txt for Pico 2 W
-tools/build_firmware.sh
+$SUBMODULE_PATH/tools/build_firmware.sh
 
 # Build an explicit version/model locally
-tools/build_firmware.sh 1.0.1 pico2-w-rp2350
+$SUBMODULE_PATH/tools/build_firmware.sh 1.0.1 pico2-w-rp2350
 
 # Serve build/ over local HTTP, then use the printed OTA URL as DIRECT_BASE_URL
-tools/serve_update.sh
+$SUBMODULE_PATH/tools/serve_update.sh
 
 # Update the framework checkout; review and commit its pointer afterward
-tools/update_framework.sh
+$SUBMODULE_PATH/tools/update_framework.sh
 
 # Trigger the GitHub release workflow by pushing a clean annotated tag
-tools/release_github.sh 1.0.1
-```
+$SUBMODULE_PATH/tools/release_github.sh 1.0.1
+\`\`\`
 
 For a manual GitHub run, open **Actions → Build firmware release → Run
 workflow** and enter a semantic version. The release workflow also runs when a
-`vMAJOR.MINOR.PATCH` tag is pushed.
+\`vMAJOR.MINOR.PATCH\` tag is pushed.
 
-For MicroPico deployment, copy `system-config.example.json` to the ignored
-`system-config.json`, edit it, run `python3 tools/assemble.py`, and configure
-MicroPico's sync folder as `device`.
+For MicroPico deployment, copy \`system-config.example.json\` to the ignored
+\`system-config.json\`, edit it, run \`python3 $SUBMODULE_PATH/tools/assemble.py\`,
+and configure MicroPico's sync folder as \`device\`.
 
-The initializer creates a minimal `.vscode/settings.json` with MicroPico's sync
-folder set to `device`. This is idempotent: an existing settings file is kept
+The initializer creates a minimal \`.vscode/settings.json\` with MicroPico's sync
+folder set to \`device\`. This is idempotent: an existing settings file is kept
 unchanged. Do not use the repository root as the sync folder because it would
-copy host-only `vendor`, `tools`, `build`, and nested `device` trees to flash.
+copy host-only framework files, \`build\`, and nested \`device\` trees to flash.
 
 The first transition from an HTTPS-only framework build to local HTTP must be
 provisioned once through USB/MicroPico because the installed old updater cannot
 download HTTP. After synchronization, ensure no stale
-`lib/coresys/manager_firmware.mpy` remains beside the assembled `.py`, reset the
+\`lib/coresys/manager_firmware.mpy\` remains beside the assembled \`.py\`, reset the
 board, and then use local HTTP OTA normally.
 EOF
 
@@ -389,22 +269,7 @@ for entry in '.vscode/' '.micropico' '.venv/' '__pycache__/' '*.pyc' 'device/' '
     append_ignore "$entry"
 done
 
-chmod +x \
-    "$PROJECT_ROOT/tools/update_framework.sh" \
-    "$PROJECT_ROOT/tools/assemble.py" \
-    "$PROJECT_ROOT/tools/setup_build_env.sh" \
-    "$PROJECT_ROOT/tools/build_firmware.sh" \
-    "$PROJECT_ROOT/tools/serve_update.sh" \
-    "$PROJECT_ROOT/tools/release_github.sh" \
-    "$PROJECT_ROOT/tools/device.py" \
-    "$PROJECT_ROOT/tools/console.py" \
-    "$PROJECT_ROOT/tools/discover.py" \
-    "$PROJECT_ROOT/tools/provision.sh" \
-    "$PROJECT_ROOT/tools/net.sh" \
-    "$PROJECT_ROOT/tools/deploy.sh" \
-    "$PROJECT_ROOT/tools/device.sh"
-
 echo
 echo "Project initialized at $PROJECT_ROOT"
 echo "Next: copy system-config.example.json to system-config.json, edit it,"
-echo "then run: python3 tools/assemble.py"
+echo "then run: python3 $SUBMODULE_PATH/tools/assemble.py"

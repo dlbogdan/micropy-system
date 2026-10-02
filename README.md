@@ -112,13 +112,14 @@ initializer:
 git submodule add https://github.com/dlbogdan/micropy-system.git vendor/micropy-system
 git submodule update --init --recursive
 vendor/micropy-system/tools/init_project.sh
-tools/setup_build_env.sh
+vendor/micropy-system/tools/setup_build_env.sh
 cp system-config.example.json system-config.json
 ```
 
 The initializer is non-destructive: it creates missing application boilerplate,
-build/serve/framework-update scripts, configuration templates, editor settings,
-ignore rules, and the GitHub release workflow without replacing existing files.
+configuration templates, editor settings, ignore rules, and the GitHub release
+workflow without replacing existing files. It does not generate project tools —
+every helper is invoked through the submodule path (see Device tools).
 
 Edit `system-config.json` with the device model, Wi-Fi credentials, and update
 source. For local development, set `DIRECT_BASE_URL` to the builder machine's
@@ -128,7 +129,7 @@ trusted-LAN URL (for example `http://192.168.1.10:8000/`) and enable
 For the first installation on a blank Pico, run:
 
 ```sh
-python3 tools/assemble.py
+python3 vendor/micropy-system/tools/assemble.py
 ```
 
 Configure MicroPico to synchronize only the generated `device` directory, then
@@ -166,13 +167,13 @@ with the same port that the server will use, then start it:
 .venv/bin/python firmware_server.py --directory build --port 8000
 ```
 
-Use the printed `http://LAN_ADDRESS:8000/` value as `DIRECT_BASE_URL`. Target
-projects created by `tools/init_project.sh` also receive
-`tools/serve_update.sh`, so their local flow is simply:
+Use the printed `http://LAN_ADDRESS:8000/` value as `DIRECT_BASE_URL`. Projects
+invoke the framework tools through the submodule path, so their local flow is
+simply:
 
 ```sh
-tools/build_firmware.sh 1.0.1 pico2-w-rp2350
-tools/serve_update.sh
+micropy-system/tools/build_firmware.sh 1.0.1 pico2-w-rp2350
+micropy-system/tools/serve_update.sh
 ```
 
 If port 8000 is already occupied, either stop the existing server or choose a
@@ -189,12 +190,12 @@ production GitHub downloads continue to use HTTPS.
    `app/main.py` and must expose an asynchronous `main()` function.
 2. Increment `app/version.txt` using `MAJOR.MINOR.PATCH`. The offered version
    must be newer than the version currently stored on the Pico.
-3. Build and assemble using the application-owned helper:
+3. Build and assemble using the framework's helper:
 
    ```sh
-   tools/build_firmware.sh
+   micropy-system/tools/build_firmware.sh
    # Or select version and board explicitly:
-   tools/build_firmware.sh 1.2.3 pico2-w-rp2350
+   micropy-system/tools/build_firmware.sh 1.2.3 pico2-w-rp2350
    ```
 
    This refreshes the bootstrap-only `device` tree and creates the A/B OTA
@@ -202,7 +203,7 @@ production GitHub downloads continue to use HTTPS.
 4. Keep the local server running in a separate terminal:
 
    ```sh
-   tools/serve_update.sh 8000
+   micropy-system/tools/serve_update.sh 8000
    ```
 
    The build port, server port, and `DIRECT_BASE_URL` port must match. Do not
@@ -319,10 +320,10 @@ vendor/micropy-system/tools/init_project.sh
 ```
 
 The initializer never overwrites existing files. It creates an application
-overlay, deterministic device-tree assembler, framework-update helper,
-configuration template, ignore rules, and an application-owned GitHub Actions
-release workflow. Pass an explicit project path when running the initializer
-outside a submodule checkout.
+overlay, configuration template, editor settings, ignore rules, and an
+application-owned GitHub Actions release workflow. It does not generate project
+tools: all helpers are invoked through the submodule path. Pass an explicit
+project path when running the initializer outside a submodule checkout.
 
 Release asset metadata includes the model, compressed size, SHA-256,
 MicroPython runtime version, and MPY format. The device validates these fields
@@ -331,14 +332,14 @@ before decompressing the update.
 ## Device tools
 
 Host-side device tooling is owned by the framework under `tools/`.
-`tools/init_project.sh` generates thin project shims under the project's
-`tools/` so existing CLIs keep working; updates to the tools flow through
-`tools/update_framework.sh` instead of being re-copied per project.
+Projects do not ship their own tooling: the initializer generates no project
+tools, and each helper is invoked from the project through the submodule path
+(e.g. `./micropy-system/tools/deploy.sh`). A project refreshes its framework
+checkout with `tools/update_framework.sh` and then commits the pointer.
 
 Every tool resolves the project root the same way: `--app-root` flag,
 then `$MICROPY_APP_ROOT`, then the git superproject, then the CWD — so they
-work both as `tools/<name>` from the project and as
-`<submodule>/tools/<name>` from anywhere.
+work from the project, the submodule, or anywhere else.
 
 **Device lifecycle**
 
@@ -361,6 +362,13 @@ work both as `tools/<name>` from the project and as
 | `tools/serve_update.sh` | `[PORT]` → serve `build/` for direct-server OTA (`firmware_server.py`) |
 | `tools/release_github.sh` | `MAJOR.MINOR.PATCH` → tag + push; the project's CI builds the GitHub release |
 | `tools/deploy.sh` | End-to-end: bump version → build → serve → OTA over Wi-Fi → wait for A/B promotion → self-test (`--usb` legacy path available) |
+
+**Framework maintenance and debug**
+
+| Tool | Purpose |
+| --- | --- |
+| `tools/update_framework.sh` | Update the framework's own submodule checkout in the consuming project (fetch + ff-merge); the project then commits the pointer |
+| `tools/capture_boot.py` | Capture serial output across a board reset (DTR/RTS toggle) to inspect the reset cause / crash |
 
 `mpremote` and `pyserial` come from `requirements-dev.txt` (installed by
 `tools/setup_build_env.sh`). The provisioning engine expects the app to log a
