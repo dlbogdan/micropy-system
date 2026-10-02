@@ -66,7 +66,11 @@ def serial_ports():
         from serial.tools import list_ports
         ports = list(list_ports.comports())
         ports.sort(key=lambda item: (item.vid != PICO_USB_VID, item.device))
-        detected.extend(item.device for item in ports if item.device)
+        for item in ports:
+            device = item.device or ""
+            usb_path = ("usb" in device.lower() or "ttyacm" in device.lower())
+            if device and (item.vid == PICO_USB_VID or usb_path):
+                detected.append(device)
     except (ImportError, OSError):
         pass
 

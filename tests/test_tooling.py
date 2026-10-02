@@ -2,6 +2,7 @@ import importlib.util
 import os
 from pathlib import Path
 import tempfile
+import types
 import unittest
 from unittest import mock
 
@@ -56,6 +57,23 @@ class ToolingTests(unittest.TestCase):
                 ["/dev/ttyACM0"] if pattern == "/dev/ttyACM*" else [])
             with mock.patch.dict("sys.modules", {"serial.tools": None}):
                 self.assertIn("/dev/ttyACM0", self.tooling.serial_ports())
+
+    def test_serial_detection_ignores_non_usb_ports(self):
+        fake_serial = types.ModuleType("serial")
+        fake_tools = types.ModuleType("serial.tools")
+        fake_list_ports = types.ModuleType("serial.tools.list_ports")
+        fake_list_ports.comports = lambda: [
+            types.SimpleNamespace(device="/dev/cu.Bluetooth-Incoming-Port", vid=None),
+            types.SimpleNamespace(device="/dev/cu.usbmodem1", vid=0x2E8A),
+        ]
+        fake_tools.list_ports = fake_list_ports
+        fake_serial.tools = fake_tools
+        with mock.patch.dict("sys.modules", {
+                "serial": fake_serial,
+                "serial.tools": fake_tools,
+                "serial.tools.list_ports": fake_list_ports,
+        }), mock.patch.object(self.tooling.glob, "glob", return_value=[]):
+            self.assertEqual(self.tooling.serial_ports(), ["/dev/cu.usbmodem1"])
 
 
 if __name__ == "__main__":
