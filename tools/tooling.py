@@ -90,10 +90,11 @@ def find_serial_port(explicit=None):
     return ports[0] if ports else None
 
 
-def _linux_lsblk_mounts():
+def _linux_boot_devices():
     try:
         output = subprocess.check_output(
-            ["lsblk", "--json", "--output", "LABEL,MOUNTPOINT,MOUNTPOINTS"],
+            ["lsblk", "--json", "--paths", "--output",
+             "PATH,LABEL,MOUNTPOINT,MOUNTPOINTS"],
             text=True, stderr=subprocess.DEVNULL, timeout=10)
         devices = json.loads(output).get("blockdevices", [])
     except (OSError, subprocess.SubprocessError, ValueError):
@@ -105,13 +106,17 @@ def _linux_lsblk_mounts():
         label = device.get("label")
         mounts = device.get("mountpoints") or [device.get("mountpoint")]
         if label in BOOT_LABELS:
-            found.extend(mount for mount in mounts if mount)
+            found.append((device.get("path"), [mount for mount in mounts if mount]))
         for child in device.get("children") or []:
             visit(child)
 
     for device in devices:
         visit(device)
     return found
+
+
+def _linux_lsblk_mounts():
+    return [mount for _device, mounts in _linux_boot_devices() for mount in mounts]
 
 
 def boot_volume_candidates(system=None, home=None):
@@ -142,6 +147,19 @@ def find_boot_volume(system=None, candidates=None):
         if path.is_dir():
             return path.resolve()
     return None
+
+
+def find_or_mount_boot_volume():
+    """Find BOOTSEL, asking udisks to mount it on Linux when necessary."""
+    volume = find_boot_volume()
+    if volume or platform.system() != "Linux" or not shutil_which("udisksctl"):
+        return volume
+    for device, mounts in _linux_boot_devices():
+        if device and not mounts:
+            subprocess.run(["udisksctl", "mount", "-b", device],
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                           check=False)
+    return find_boot_volume()
 
 
 def eject_volume(path: Path):

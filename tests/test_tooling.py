@@ -51,6 +51,22 @@ class ToolingTests(unittest.TestCase):
                     self.tooling.find_boot_volume("Linux", candidates=[]),
                     volume.resolve())
 
+    def test_linux_boot_volume_is_mounted_with_udisks(self):
+        mounted = Path("/media/alice/RP2350")
+        with mock.patch.object(self.tooling.platform, "system", return_value="Linux"), \
+                mock.patch.object(self.tooling, "find_boot_volume",
+                                  side_effect=[None, mounted]), \
+                mock.patch.object(self.tooling, "shutil_which",
+                                  return_value="/usr/bin/udisksctl"), \
+                mock.patch.object(self.tooling, "_linux_boot_devices",
+                                  return_value=[("/dev/sdb1", [])]), \
+                mock.patch.object(self.tooling.subprocess, "run") as run_mock:
+            self.assertEqual(self.tooling.find_or_mount_boot_volume(), mounted)
+            run_mock.assert_called_once_with(
+                ["udisksctl", "mount", "-b", "/dev/sdb1"],
+                stdout=self.tooling.subprocess.DEVNULL,
+                stderr=self.tooling.subprocess.DEVNULL, check=False)
+
     def test_serial_fallbacks_include_linux_devices(self):
         with mock.patch.object(self.tooling.glob, "glob") as glob_mock:
             glob_mock.side_effect = lambda pattern: (

@@ -434,6 +434,18 @@ Every tool resolves the project root the same way: `--app-root` flag,
 then `$MICROPY_APP_ROOT`, then the git superproject, then the CWD — so they
 work from the project, the submodule, or anywhere else.
 
+The canonical implementations are Python modules under `tools/`. Existing
+`.sh` command names are retained as five-line compatibility launchers, so
+project documentation and automation do not break; they contain no business
+logic or embedded Python. The tools support macOS and Linux. USB discovery uses
+pyserial plus `/dev/cu.usb*`, `/dev/ttyACM*`, and `/dev/ttyUSB*`; BOOTSEL media
+is found under `/Volumes`, `/media`, `/run/media`, or `/mnt`. On Linux,
+`udisksctl` is used to mount an unmounted BOOTSEL volume when available.
+
+Linux users must have serial access (commonly membership in `dialout`) and
+permission to mount removable media. On a headless system without `udisksctl`,
+mount the `RPI-RP2`/`RP2350` volume manually before provisioning.
+
 ### The device shell (on-device service)
 
 Once Wi-Fi is up, a device runs the framework's `lib/coresys/telnet_service.py`

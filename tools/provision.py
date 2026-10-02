@@ -20,7 +20,7 @@ import tempfile
 import time
 import urllib.request
 
-from tooling import (eject_volume, find_boot_volume, find_serial_port,
+from tooling import (eject_volume, find_or_mount_boot_volume, find_serial_port,
                      framework_root, project_executable, project_python,
                      resolve_app_root)
 
@@ -222,7 +222,7 @@ def provision(args):
 
     port = find_serial_port(os.environ.get("SERIAL_PORT"))
     print("==> Waiting for the Pico bootrom volume (board in BOOTSEL)...")
-    volume = find_boot_volume()
+    volume = find_or_mount_boot_volume()
     if volume:
         print("    volume already mounted: %s" % volume)
     else:
@@ -232,7 +232,7 @@ def provision(args):
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         else:
             print("    No serial port visible. Plug the Pico in with BOOTSEL held.")
-        volume = wait_until(find_boot_volume, 180)
+        volume = wait_until(find_or_mount_boot_volume, 180)
         if not volume:
             raise RuntimeError("no Pico bootrom volume appeared within 180s")
         print("    volume: %s" % volume)
