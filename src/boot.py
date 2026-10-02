@@ -91,6 +91,37 @@ def create_firmware_updater():
     
     return None
 
+
+# Set after a successful apply so the first non-pending boot after an update
+# does not redo a network check that is guaranteed up-to-date. Consumed
+# (cleared) on the boot that reads it.
+JUST_UPDATED_FLAG = "/__just_updated"
+
+
+def _just_updated_flag_present():
+    try:
+        uos.stat(JUST_UPDATED_FLAG)
+        return True
+    except OSError:
+        return False
+
+
+def _clear_just_updated_flag():
+    try:
+        uos.remove(JUST_UPDATED_FLAG)
+    except OSError:
+        pass
+
+
+def _set_just_updated_flag():
+    try:
+        with open(JUST_UPDATED_FLAG, "w") as flag_file:
+            flag_file.write("1")
+    except OSError as error:
+        logger.warning(
+            "Boot: Could not set just-updated flag: %s" % error, log_to_file=True)
+
+
 async def perform_firmware_update():
     """
     Main update check routine - simplified pseudocode-like flow
@@ -100,6 +131,13 @@ async def perform_firmware_update():
 
     if load_state()["pending"] is not None:
         logger.info("Boot: Pending A/B candidate will run before another OTA check.", log_to_file=True)
+        return
+
+    if _just_updated_flag_present():
+        _clear_just_updated_flag()
+        logger.info(
+            "Boot: Just updated on a previous boot; skipping update check.",
+            log_to_file=True)
         return
 
     logger.info("Boot: Starting firmware updater...", log_to_file=True)
@@ -144,6 +182,7 @@ async def perform_firmware_update():
 
     if update_applied:
         logger.info("Boot: Rebooting after successful update...", log_to_file=True)
+        _set_just_updated_flag()
         await asyncio.sleep_ms(250)
         machine.reset()
 
