@@ -21,7 +21,10 @@ class BuildVersionTests(unittest.TestCase):
         self.assertNotIn('"micropico.openOnStart"', initializer)
         self.assertNotIn('"micropico.autoConnect"', initializer)
         self.assertNotIn('write_file .micropico', initializer)
-        self.assertIn('.micropy-system-device-tree', initializer)
+
+    def test_canonical_assembler_marks_the_micropico_sync_root(self):
+        assembler = (Path(__file__).parents[1] / 'tools' / 'assemble.py').read_text()
+        self.assertIn('.micropy-system-device-tree', assembler)
 
     def test_legacy_packager_defaults_to_canonical_github_adapter(self):
         args = prepare_release.compatibility_args([])
