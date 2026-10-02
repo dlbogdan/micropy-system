@@ -1,50 +1,58 @@
 #!/usr/bin/env python3
-"""Capture live serial output across a board reset to see the reset cause / crash.
+"""Capture serial output across a Pico reset on macOS or Linux."""
 
-Usage: capture_boot.py [PORT] [SECONDS]
-
-PORT defaults to the first /dev/cu.usbmodem* (macOS) or /dev/ttyACM* (Linux)
-device. The DTR/RTS toggle resets the Pico like mpremote does.
-"""
-import glob
+import argparse
 import sys
 import threading
 import time
 
-import serial
-
-if len(sys.argv) > 1:
-    PORT = sys.argv[1]
-else:
-    ports = sorted(glob.glob("/dev/cu.usbmodem*")) + sorted(glob.glob("/dev/ttyACM*"))
-    if not ports:
-        sys.exit("No serial port found; pass one explicitly: capture_boot.py /dev/... [SECONDS]")
-    PORT = ports[0]
-DURATION = float(sys.argv[2]) if len(sys.argv) > 2 else 30.0
-
-buf = []
-stop = threading.Event()
+from tooling import find_serial_port
 
 
-def reader():
-    with serial.Serial(PORT, 115200, timeout=0.5) as s:
-        s.reset_input_buffer()
-        # DTR/RTS toggle to reset the Pico (like mpremote does).
-        time.sleep(0.1)
-        s.dtr = False
-        s.rts = True
-        while not stop.is_set():
-            n = s.in_waiting
-            if n:
-                data = s.read(n)
-                buf.append(data)
-                sys.stdout.write(data.decode("utf-8", "replace"))
-                sys.stdout.flush()
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("port", nargs="?", help="USB serial port (auto-detected)")
+    parser.add_argument("seconds", nargs="?", type=float, default=30.0)
+    return parser.parse_args(argv)
 
 
-t = threading.Thread(target=reader, daemon=True)
-t.start()
-time.sleep(DURATION)
-stop.set()
-t.join(timeout=2)
-print("\n=== capture done (%d bytes) ===" % sum(len(b) for b in buf))
+def main(argv=None):
+    args = parse_args(argv)
+    try:
+        import serial
+    except ImportError:
+        raise SystemExit("pyserial is missing; run tools/setup_build_env.sh")
+    port = find_serial_port(args.port)
+    if not port:
+        raise SystemExit(
+            "No serial port found; connect the Pico or pass /dev/... explicitly")
+
+    captured = []
+    stop = threading.Event()
+
+    def reader():
+        with serial.Serial(port, 115200, timeout=0.5) as connection:
+            connection.reset_input_buffer()
+            # DTR/RTS toggle resets the Pico (like mpremote does).
+            time.sleep(0.1)
+            connection.dtr = False
+            connection.rts = True
+            while not stop.is_set():
+                count = connection.in_waiting
+                if count:
+                    data = connection.read(count)
+                    captured.append(data)
+                    sys.stdout.write(data.decode("utf-8", "replace"))
+                    sys.stdout.flush()
+
+    thread = threading.Thread(target=reader, daemon=True)
+    thread.start()
+    time.sleep(args.seconds)
+    stop.set()
+    thread.join(timeout=2)
+    print("\n=== capture done (%d bytes) ===" %
+          sum(len(chunk) for chunk in captured))
+
+
+if __name__ == "__main__":
+    main()

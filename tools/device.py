@@ -23,41 +23,19 @@ Examples
     tools/device.py reset                 # soft-reset the board
     tools/device.py files --path /apps/a  # list a directory
 
-The serial port is auto-detected (first /dev/cu.usbmodem*); override with --port.
+The serial port is auto-detected on macOS and Linux; override with --port.
 mpremote and pyserial are expected in the project's .venv (created by
 tools/setup_build_env.sh from the framework's requirements-dev.txt).
 """
 
 import argparse
-import glob
 import os
 import shutil
 import subprocess
 import sys
 import time
 
-
-def framework_root():
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def resolve_app_root(cli_value=None):
-    """Project root: --app-root flag > MICROPY_APP_ROOT > git superproject > CWD."""
-    if cli_value:
-        return os.path.abspath(cli_value)
-    env = os.environ.get("MICROPY_APP_ROOT")
-    if env:
-        return os.path.abspath(env)
-    root = framework_root()
-    try:
-        proc = subprocess.run(
-            ["git", "-C", root, "rev-parse", "--show-superproject-working-tree"],
-            capture_output=True, text=True, timeout=10)
-        if proc.returncode == 0 and proc.stdout.strip():
-            return os.path.abspath(proc.stdout.strip())
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return os.getcwd()
+from tooling import find_serial_port, resolve_app_root
 
 
 def resolve_mpremote(app_root):
@@ -78,11 +56,10 @@ MPREMOTE = None
 
 def find_port():
     """Best-effort detection of the Pico's USB-CDC serial port."""
-    for pattern in ("/dev/cu.usbmodem*", "/dev/cu.usbserial*", "/dev/tty.usbmodem*"):
-        hits = sorted(glob.glob(pattern))
-        if hits:
-            return hits[0]
-    return "/dev/cu.usbmodem203201"  # last-resort default for this board
+    port = find_serial_port()
+    if port:
+        return port
+    sys.exit("No USB serial device found. Connect the Pico or pass --port.")
 
 
 # --- mpremote helpers ----------------------------------------------------------
@@ -277,7 +254,7 @@ def build_parser():
 def main(argv=None):
     global APP_ROOT, MPREMOTE
     args = build_parser().parse_args(argv)
-    APP_ROOT = resolve_app_root(args.app_root)
+    APP_ROOT = str(resolve_app_root(args.app_root))
     MPREMOTE = resolve_mpremote(APP_ROOT)
     args.fn(args)
 
