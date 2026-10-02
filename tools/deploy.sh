@@ -128,9 +128,11 @@ if [ "$USB_MODE" = 1 ]; then
     "$FRAMEWORK_ROOT/tools/device.py" reset || true
 
     echo "==> Waiting for OTA install + slot promotion (timeout 240s)..."
-    DEADLINE=$(( $(date +%s) + 240 ))
+    START=$(date +%s)
+    DEADLINE=$(( START + 240 ))
     OK=0
     while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+        EL=$(( $(date +%s) - START ))
         # The board may be mid-OTA (USB REPL busy / port re-enumerating); only a
         # well-formed "MAJ.MIN.PAT|slot|rejected" line is a real answer.
         OUT=$("$FRAMEWORK_ROOT/tools/device.py" exec \
@@ -138,7 +140,7 @@ if [ "$USB_MODE" = 1 ]; then
             2>/dev/null | tail -1 | tr -d '[:space:]')
         case "$OUT" in
             [0-9]*.[0-9]*.[0-9]*\|*\|*) ;;          # well-formed: parse below
-            *) echo "    board busy/unreachable (${OUT:0:60}); retrying..."; sleep 4; continue ;;
+            *) echo "    [t=${EL}s] board busy/unreachable (${OUT:0:60}); retrying..."; sleep 4; continue ;;
         esac
         V=${OUT%%|*}; REST=${OUT#*|}; ACTIVE=${REST%%|*}; REJ=${REST#*|}
         if [ "$V" = "$VERSION" ] && [ "$REJ" = "None" ]; then
@@ -206,10 +208,19 @@ echo "==> Rebooting board over its shell (triggers boot-time OTA check)"
 # comes back, so expect a gap of several seconds (longer mid-install).
 
 echo "==> Waiting for OTA install + slot promotion (timeout 240s)..."
-DEADLINE=$(( $(date +%s) + 240 ))
+echo "    The board is rebooting now: the boot-time OTA check downloads + installs"
+echo "    the update BEFORE the shell comes back, so a silent 10-60s gap is normal."
+START=$(date +%s)
+DEADLINE=$(( START + 240 ))
 OK=0
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
+    EL=$(( $(date +%s) - START ))
     RAW=$("$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" status 2>/dev/null) || RAW=""
+    case "$RAW" in
+        busy*) echo "    [t=${EL}s] shell is busy - close the other client (one at a time); retrying..."
+               sleep 4
+               continue ;;
+    esac
     if [ -n "$RAW" ]; then
         STATE=$(printf '%s' "$RAW" | "$PYTHON" -c '
 import json, sys
@@ -226,20 +237,18 @@ print("%s|%s|%s" % (d.get("version"), s.get("active"), s.get("rejected")))
                 OK=1; break
             fi
             if [ "$REJ" != "None" ]; then
-                echo "    candidate rejected (rejected_version=$REJ); stopping early."
+                echo "    [t=${EL}s] candidate rejected (rejected_version=$REJ); stopping early."
                 break
             fi
-            echo "    up as $V (want $VERSION); waiting for OTA install..."
+            echo "    [t=${EL}s] up as $V (want $VERSION) - waiting for OTA install..."
             sleep 4
             continue
         fi
-        case "$RAW" in
-            busy*) echo "    shell is busy - close the other client (one at a time); retrying..."
-                   sleep 4
-                   continue ;;
-        esac
+        echo "    [t=${EL}s] unexpected reply: ${RAW:0:60}; retrying..."
+        sleep 4
+        continue
     fi
-    echo "    board down/unreachable; retrying..."
+    echo "    [t=${EL}s] board still down (expected mid-OTA) - retrying..."
     sleep 4
 done
 
