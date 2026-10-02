@@ -445,6 +445,10 @@ Once Wi-Fi is up, a device runs the framework's `lib/coresys/telnet_service.py`
   the boot-time OTA check then installs any served update), and `help`.
   The unrestricted `repl` command is disabled by default; an application must
   explicitly pass `allow_repl=True` to `TelnetService` to expose it.
+- **Authentication**: pass `auth_token=...` to `TelnetService` to require
+  `auth TOKEN` before every connection can issue commands. Set the same value
+  in `MICROPY_SHELL_TOKEN` when using `tools/telnet.py` or `tools/net.sh`.
+  Omitting `auth_token` preserves an unauthenticated diagnostic shell.
 - **App commands**: `shell.add("selftest", handler)` etc. from the app's
   `main()`.
 - **Protocol**: plain lines; every answer ends with `<<<END>>>\n`; one

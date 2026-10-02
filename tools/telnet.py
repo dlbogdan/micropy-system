@@ -15,7 +15,8 @@ Stock telnet/nc work too (port 23 is the standard telnet port):
     nc 10.9.30.76 23
 
 Protocol: the server answers every command with output lines terminated by
-'<<<END>>>\n'; a banner with the same marker is sent on connect.
+'<<<END>>>\n'; a banner with the same marker is sent on connect. Set
+MICROPY_SHELL_TOKEN when the server requires authentication.
 """
 
 import os
@@ -58,10 +59,20 @@ def _write_out(payload):
     sys.stdout.flush()
 
 
-def _one_shot(host, port, command):
+def _authenticate(s, token):
+    if not token:
+        return
+    s.sendall(("auth " + token + "\n").encode())
+    response = _recv_until_end(s).decode("utf-8", "replace").strip()
+    if response != "authenticated":
+        raise RuntimeError("shell authentication failed")
+
+
+def _one_shot(host, port, command, token=None):
     s = _connect(host, port, CMD_TIMEOUT)
     try:
         _recv_until_end(s)  # banner; discard
+        _authenticate(s, token)
         s.sendall((command + "\n").encode())
         payload = _recv_until_end(s)
     finally:
@@ -69,10 +80,13 @@ def _one_shot(host, port, command):
     _write_out(payload)
 
 
-def _interactive(host, port):
+def _interactive(host, port, token=None):
     s = _connect(host, port)
     try:
         _write_out(_recv_until_end(s))  # banner
+        _authenticate(s, token)
+        if token:
+            print("authenticated")
         in_repl = False
         while True:
             try:
@@ -107,11 +121,14 @@ def main():
         rest = rest[1:]
     if rest:
         command = " ".join(rest)
+    token = os.environ.get("MICROPY_SHELL_TOKEN")
     try:
         if command:
-            _one_shot(host, port, command)
+            _one_shot(host, port, command, token=token)
         else:
-            _interactive(host, port)
+            _interactive(host, port, token=token)
+    except RuntimeError as e:
+        sys.exit("error: %s" % e)
     except socket.timeout:
         sys.exit("error: %s:%s timed out (board may be mid-boot / half-up)" % (host, port))
     except OSError as e:

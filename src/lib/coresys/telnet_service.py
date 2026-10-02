@@ -14,10 +14,12 @@ listener on the standard telnet port (23 by default). Stock ``telnet`` and
 
 Protocol: plain text lines. Each client line is a command; the server
 answers with zero or more output lines followed by ``<<<END>>>\n``.
-``exit``/``quit`` closes the connection. The persistent Python eval loop is
-available only when the application explicitly constructs the service with
-``allow_repl=True``; it is disabled by default. RFC 854 IAC sequences sent by
-real telnet clients are stripped, so no option negotiation is required.
+``exit``/``quit`` closes the connection. Passing ``auth_token`` requires each
+client to authenticate with ``auth TOKEN`` before any command is accepted.
+The persistent Python eval loop is available only when the application
+explicitly constructs the service with ``allow_repl=True``; it is disabled by
+default. RFC 854 IAC sequences sent by real telnet clients are stripped, so no
+option negotiation is required.
 
 Built-in commands: ``status`` (one-line JSON), ``log [N]``, ``heap``,
 ``reboot``, ``help``, plus optional ``repl``. Applications extend the command
@@ -60,12 +62,13 @@ class TelnetService:
     """One line-command listener: built-ins plus app-registered commands."""
 
     def __init__(self, wifi=None, port=DEFAULT_PORT, name="micropy-system",
-                 log_path="/log.txt", allow_repl=False):
+                 log_path="/log.txt", allow_repl=False, auth_token=None):
         self.wifi = wifi
         self.port = int(port)
         self.name = name
         self.log_path = log_path
         self.allow_repl = bool(allow_repl)
+        self.auth_token = str(auth_token) if auth_token else None
         self._commands = {}
         self._busy = False
 
@@ -172,9 +175,12 @@ class TelnetService:
                 await writer.drain()
                 return
             self._busy = True
-            writer.write(("micropy-system shell (%s)\n"
-                          "Type 'help' for commands.\n" % self.name +
-                          END_MARKER + "\n").encode())
+            authenticated = self.auth_token is None
+            auth_notice = ("Authentication required: auth TOKEN\n"
+                           if not authenticated else "")
+            writer.write(("micropy-system shell (%s)\n" % self.name
+                          + auth_notice + "Type 'help' for commands.\n"
+                          + END_MARKER + "\n").encode())
             await writer.drain()
             while True:
                 line = await reader.readline()
@@ -185,6 +191,17 @@ class TelnetService:
                     continue
                 if text in ("exit", "quit"):
                     break
+                if not authenticated:
+                    command, _, supplied = text.partition(" ")
+                    if (command.lower() == "auth"
+                            and supplied.strip() == self.auth_token):
+                        authenticated = True
+                        response = "authenticated"
+                    else:
+                        response = "authentication required"
+                    writer.write((response + "\n" + END_MARKER + "\n").encode())
+                    await writer.drain()
+                    continue
                 if text.lower() == "repl":
                     if self.allow_repl:
                         await self._repl(reader, writer)

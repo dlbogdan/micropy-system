@@ -88,6 +88,26 @@ class TelnetServiceTests(unittest.TestCase):
         service = module.TelnetService(allow_repl=True)
         self.assertIn("repl", service._help(""))
 
+    def test_auth_token_gates_all_commands(self):
+        module = load_telnet_service()
+        service = module.TelnetService(auth_token="secret")
+        reader = _Reader([
+            b"auth wrong\n",
+            b"help\n",
+            b"auth secret\n",
+            b"help\n",
+            b"quit\n",
+        ])
+        writer = _Writer()
+
+        asyncio.run(service._handle(reader, writer))
+
+        output = writer.output.decode()
+        self.assertIn("Authentication required: auth TOKEN", output)
+        self.assertEqual(output.count("authentication required\n"), 2)
+        self.assertIn("authenticated\n", output)
+        self.assertIn("status    one-line JSON", output)
+
 
 if __name__ == "__main__":
     unittest.main()
