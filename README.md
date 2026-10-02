@@ -85,6 +85,91 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
 }
 ```
 
+## Quick Start: new project tutorial
+
+The complete path from an empty repository to a Wi-Fi board running your app,
+then the day-to-day loop. Run everything from the project root; the framework
+lives in a submodule (`micropy-system/` below — use your path if it differs,
+e.g. `vendor/micropy-system/`).
+
+### 1. Add the framework
+
+```sh
+git submodule add https://github.com/dlbogdan/micropy-system.git micropy-system
+./micropy-system/tools/init_project.sh    # app skeleton + templates (non-destructive)
+./micropy-system/tools/setup_build_env.sh # .venv with mpy-cross, pyserial, ...
+git add -A && git commit -m "Bootstrap micropy-system project"
+```
+
+### 2. Configure
+
+- `system-config.json` (copy of `system-config.example.json`, gitignored):
+  device name/model and `WIFI.SSID` / `WIFI.PASS`.
+- `update-source.json` (optional, project root): which OTA source boards check —
+  `{"mode": "local", "local": {"base_url": "http://<builder-lan-ip>:8000"}}`
+  or `{"mode": "github", "github": {"repo": "user/repo", "token": ""}}`.
+  No usable source forces `UPDATE_ON_BOOT` off.
+- `app/main.py`: your app — must expose `async def main()`; do **not** call
+  `asyncio.run()` and do **not** return.
+- `app/version.txt`: `MAJOR.MINOR.PATCH`; must increase with every deploy.
+
+### 3. Provision a blank board (one time, over USB)
+
+```sh
+./micropy-system/tools/provision.sh --ssid "MyNet" --pass "secret"          # Pico 2 W (RP2350)
+./micropy-system/tools/provision.sh --board pico-w --ssid "MyNet" --pass "secret"  # Pico W (RP2040)
+```
+
+Flashes the pinned MicroPython 1.29.0, formats the data LFS (a UF2 flash does
+**not** erase it), uploads the assembled device tree + resolved config,
+verifies the app reaches its main loop, and performs the required final reset.
+No network needed; the board is then autonomous.
+
+### 4. Develop and deploy (Wi-Fi only, no USB)
+
+```sh
+DEVICE_IP=10.9.30.76 ./micropy-system/tools/deploy.sh
+```
+
+`deploy.sh` bumps `app/version.txt`, builds the app-only OTA package into
+`build/`, (re)starts the local update server on `:8000`, reboots the board
+over its shell (the boot-time OTA check downloads + installs *before* the
+shell comes back — a silent ~10–20 s gap is normal), polls for A/B slot
+promotion, and runs the app's self-test. `DEPLOY OK` means the new version is
+active and the board is left running.
+
+### 5. Inspect the running board
+
+```sh
+./micropy-system/tools/telnet.py 10.9.30.76 status    # one-line JSON
+./micropy-system/tools/telnet.py 10.9.30.76 log 40    # last 40 log lines
+./micropy-system/tools/telnet.py 10.9.30.76 selftest  # app-registered checks
+./micropy-system/tools/telnet.py 10.9.30.76           # interactive (try 'repl')
+# stock clients work too: telnet 10.9.30.76 | nc 10.9.30.76 23
+```
+
+### 6. Release to GitHub (optional)
+
+```sh
+./micropy-system/tools/release_github.sh 1.2.0   # tag + push; project CI builds the release
+```
+
+Point boards at it by switching `update-source.json` to `"github"` mode and
+re-provisioning (or editing the board config) — `deploy.sh` always uses the
+local server, so local and GitHub modes coexist.
+
+### Update-model facts that matter
+
+- **OTA packages carry only the app slot** (`app_entry.py` + app modules).
+  Framework code under `lib/coresys/` reaches an *existing* board only via
+  re-provisioning (or a shell-`repl` injection + reboot); a fresh board gets
+  everything from `provision.sh`.
+- **A/B safety:** updates install into the inactive slot; the candidate must
+  confirm within the watchdog window, otherwise the board rolls back and
+  quarantines the version.
+- **USB stops the app:** `mpremote` (Ctrl-C) interrupts whatever is running.
+  After provisioning, do everything over the shell (port 23).
+
 ## Getting Started
 
 ### Supported Runtime and Hardware Baseline
