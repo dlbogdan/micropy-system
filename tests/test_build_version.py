@@ -26,6 +26,11 @@ class BuildVersionTests(unittest.TestCase):
         assembler = (Path(__file__).parents[1] / 'tools' / 'assemble.py').read_text()
         self.assertIn('.micropy-system-device-tree', assembler)
 
+    def test_generated_workflow_uses_the_framework_assembler(self):
+        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.sh').read_text()
+        self.assertIn('run: python "$SUBMODULE_PATH/tools/assemble.py"', initializer)
+        self.assertNotIn('run: python tools/assemble.py', initializer)
+
     def test_legacy_packager_defaults_to_canonical_github_adapter(self):
         args = prepare_release.compatibility_args([])
         self.assertIn('github-assets', args)

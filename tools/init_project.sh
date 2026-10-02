@@ -198,7 +198,7 @@ jobs:
           echo "version=\${VERSION}" >> "\${GITHUB_OUTPUT}"
           echo "tag=\${TAG}" >> "\${GITHUB_OUTPUT}"
       - name: Assemble device tree
-        run: python tools/assemble.py
+        run: python "$SUBMODULE_PATH/tools/assemble.py"
       - name: Build firmware
         run: >-
           python "$SUBMODULE_PATH/local_builder.py"
