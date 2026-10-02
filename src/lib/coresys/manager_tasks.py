@@ -32,14 +32,18 @@ class TaskManager:
         self._next_task_id = 1          # For generating unique task IDs
         self.add_listener(self._on_task_event)
 
-    def create_task(self, coro, task_id=None, description=""):
+    def create_task(self, coro, task_id=None, description="",
+                    propagate_exceptions=True):
         """Create a one-shot task for a self-sustained coroutine.
-        
+
         Args:
             coro: The coroutine to run
             task_id: Optional explicit task ID, or auto-generated if None
             description: Optional description of the task
-            
+            propagate_exceptions: Re-raise failures from the task wrapper when
+                true (the historical default). Set false for optional services
+                whose failure must be reported but contained.
+
         Returns:
             task_id: The ID of the created task
         """
@@ -98,19 +102,22 @@ class TaskManager:
                     del self._tasks[task_id]
                 if task_id in self._task_info:
                     del self._task_info[task_id]
-                    
-                raise  # Re-raise the exception
-        
+
+                if propagate_exceptions:
+                    raise
+                return None
+
         # Create the actual task
         task = asyncio.create_task(task_wrapper())
-        
+
         # Store task and metadata
         self._tasks[task_id] = task
         self._task_info[task_id] = {
             'type': TaskManager.TASK_ONESHOT,
             'description': description,
             'start_time': time.time(),
-            'running': True
+            'running': True,
+            'propagate_exceptions': bool(propagate_exceptions)
         }
         
         return task_id
