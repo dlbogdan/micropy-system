@@ -166,7 +166,12 @@ local server, so local and GitHub modes coexist.
   everything from `provision.sh`.
 - **A/B safety:** updates install into the inactive slot; the candidate must
   confirm within the watchdog window, otherwise the board rolls back and
-  quarantines the version.
+  quarantines the version. The candidate boot lives only ~1–2 s after the app
+  confirms (the framework reboots once to shed the un-stoppable hardware
+  watchdog). App contract: sample `load_state()["pending"]` *before* calling
+  `confirm_running_slot()` and hold non-idempotent physical actuation (boiler,
+  relays, setpoint release) for the active boot — the actuator's last state
+  persists across the confirmation reboot, so nothing flickers.
 - **USB stops the app:** `mpremote` (Ctrl-C) interrupts whatever is running.
   After provisioning, do everything over the shell (port 23).
 
