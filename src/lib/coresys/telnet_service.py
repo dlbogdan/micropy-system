@@ -243,7 +243,11 @@ class TelnetService:
                     continue
                 if text in ("exit", "quit"):
                     break
-                out, err_text = self._eval_line(text, ns)
+                try:
+                    out, err_text = self._eval_line(text, ns)
+                except Exception as e:
+                    # Never let the error-reporting path kill the repl loop.
+                    out, err_text = "", "error: %s: %s\n" % (type(e).__name__, e)
                 writer.write((out + err_text + END_MARKER + "\n").encode())
                 await writer.drain()
         except Exception as e:
@@ -270,6 +274,8 @@ class TelnetService:
                 output.append(repr(result) + "\n")
         except Exception as e:
             errbuf = io.StringIO()
-            sys.print_exception(e, file=errbuf)
+            # MicroPython (1.29.0 Pico builds) rejects the file= keyword here;
+            # pass the stream positionally. Verified on-device.
+            sys.print_exception(e, errbuf)
             err_text = errbuf.getvalue()
         return "".join(output), err_text

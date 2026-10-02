@@ -233,6 +233,11 @@ print("%s|%s|%s" % (d.get("version"), s.get("active"), s.get("rejected")))
             sleep 4
             continue
         fi
+        case "$RAW" in
+            busy*) echo "    shell is busy - close the other client (one at a time); retrying..."
+                   sleep 4
+                   continue ;;
+        esac
     fi
     echo "    board down/unreachable; retrying..."
     sleep 4
