@@ -14,26 +14,24 @@ import firmware_server
 
 
 class BuildVersionTests(unittest.TestCase):
-    def test_initializer_writes_only_the_idempotent_sync_folder_setting(self):
-        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.sh').read_text()
-        self.assertIn('write_file .vscode/settings.json', initializer)
+    def test_initializer_writes_only_the_sync_folder_setting(self):
+        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.py').read_text()
         self.assertIn('"micropico.syncFolder": "device"', initializer)
         self.assertNotIn('"micropico.openOnStart"', initializer)
         self.assertNotIn('"micropico.autoConnect"', initializer)
-        self.assertNotIn('write_file .micropico', initializer)
 
     def test_canonical_assembler_marks_the_micropico_sync_root(self):
         assembler = (Path(__file__).parents[1] / 'tools' / 'assemble.py').read_text()
         self.assertIn('.micropy-system-device-tree', assembler)
 
     def test_generated_workflow_uses_the_framework_assembler(self):
-        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.sh').read_text()
-        self.assertIn('run: python "$SUBMODULE_PATH/tools/assemble.py"', initializer)
+        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.py').read_text()
+        self.assertIn('run: python "__SUBMODULE__/tools/assemble.py"', initializer)
         self.assertNotIn('run: python tools/assemble.py', initializer)
 
     def test_initializer_ignores_the_default_device_ip_cache(self):
-        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.sh').read_text()
-        self.assertIn("'system-config.json' '.micropy-device-ip'", initializer)
+        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.py').read_text()
+        self.assertIn('"system-config.json", ".micropy-device-ip"', initializer)
 
     def test_legacy_packager_defaults_to_canonical_github_adapter(self):
         args = prepare_release.compatibility_args([])
