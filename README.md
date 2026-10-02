@@ -144,7 +144,7 @@ active and the board is left running.
 ./micropy-system/tools/telnet.py 10.9.30.76 status    # one-line JSON
 ./micropy-system/tools/telnet.py 10.9.30.76 log 40    # last 40 log lines
 ./micropy-system/tools/telnet.py 10.9.30.76 selftest  # app-registered checks
-./micropy-system/tools/telnet.py 10.9.30.76           # interactive (try 'repl')
+./micropy-system/tools/telnet.py 10.9.30.76           # interactive command shell
 # stock clients work too: telnet 10.9.30.76 | nc 10.9.30.76 23
 ```
 
@@ -442,8 +442,9 @@ Once Wi-Fi is up, a device runs the framework's `lib/coresys/telnet_service.py`
 
 - **Built-in commands**: `status` (one-line JSON: version, slot, uptime,
   heap, wifi), `log [N]`, `heap`, `reboot` (ack, then `machine.reset()` —
-  the boot-time OTA check then installs any served update), `repl`
-  (persistent Python eval loop), `help`.
+  the boot-time OTA check then installs any served update), and `help`.
+  The unrestricted `repl` command is disabled by default; an application must
+  explicitly pass `allow_repl=True` to `TelnetService` to expose it.
 - **App commands**: `shell.add("selftest", handler)` etc. from the app's
   `main()`.
 - **Protocol**: plain lines; every answer ends with `<<<END>>>\n`; one

@@ -14,14 +14,15 @@ listener on the standard telnet port (23 by default). Stock ``telnet`` and
 
 Protocol: plain text lines. Each client line is a command; the server
 answers with zero or more output lines followed by ``<<<END>>>\n``.
-``exit``/``quit`` closes the connection; ``repl`` switches the connection
-into the persistent Python eval loop. RFC 854 IAC sequences sent by real
-telnet clients are stripped, so no option negotiation is required.
+``exit``/``quit`` closes the connection. The persistent Python eval loop is
+available only when the application explicitly constructs the service with
+``allow_repl=True``; it is disabled by default. RFC 854 IAC sequences sent by
+real telnet clients are stripped, so no option negotiation is required.
 
 Built-in commands: ``status`` (one-line JSON), ``log [N]``, ``heap``,
-``reboot``, ``repl``, ``help``. Applications extend the command table with
-``add()`` (e.g. ``selftest``). One client at a time; handler exceptions are
-contained to that request and never reach the control loop.
+``reboot``, ``help``, plus optional ``repl``. Applications extend the command
+table with ``add()`` (e.g. ``selftest``). One client at a time; handler
+exceptions are contained to that request and never reach the control loop.
 """
 
 import gc
@@ -59,11 +60,12 @@ class TelnetService:
     """One line-command listener: built-ins plus app-registered commands."""
 
     def __init__(self, wifi=None, port=DEFAULT_PORT, name="micropy-system",
-                 log_path="/log.txt"):
+                 log_path="/log.txt", allow_repl=False):
         self.wifi = wifi
         self.port = int(port)
         self.name = name
         self.log_path = log_path
+        self.allow_repl = bool(allow_repl)
         self._commands = {}
         self._busy = False
 
@@ -131,9 +133,11 @@ class TelnetService:
             "log [N]   last N log lines (default 40, max 200)",
             "heap      heap free/used after a GC pass",
             "reboot    acknowledge, then machine.reset()",
-            "repl      persistent Python eval loop (exit closes the link)",
             "help      this list",
         ]
+        if self.allow_repl:
+            rows.insert(-1,
+                        "repl      persistent Python eval loop (exit closes the link)")
         for name in sorted(self._commands):
             _handler, desc = self._commands[name]
             rows.append("%-10s %s" % (name, desc or "app command"))
@@ -182,8 +186,12 @@ class TelnetService:
                 if text in ("exit", "quit"):
                     break
                 if text.lower() == "repl":
-                    await self._repl(reader, writer)
-                    break  # the repl owns the rest of the connection
+                    if self.allow_repl:
+                        await self._repl(reader, writer)
+                        break  # the repl owns the rest of the connection
+                    writer.write(("repl disabled\n" + END_MARKER + "\n").encode())
+                    await writer.drain()
+                    continue
                 await self._dispatch(text, writer)
         except Exception as e:
             logger.error("Telnet handler error: %s" % e, log_to_file=True)

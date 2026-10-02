@@ -7,7 +7,7 @@ One-shot:    tools/telnet.py HOST [PORT] COMMAND [ARGS...]
     tools/telnet.py 10.9.30.76 selftest
     tools/telnet.py 10.9.30.76 reboot
 Interactive: tools/telnet.py HOST [PORT]
-    prints the banner, then sends each local line as a command; 'repl'
+    prints the banner, then sends each local line as a command; 'repl' (when enabled)
     drops into the device's persistent Python loop; 'exit'/'quit' close.
 
 Stock telnet/nc work too (port 23 is the standard telnet port):

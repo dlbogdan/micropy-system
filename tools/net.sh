@@ -2,8 +2,8 @@
 # Host-side client for a micropy-system device shell (no USB).
 #
 # The device runs one telnet-style line command server on the standard
-# telnet port (23): built-in commands status / log / heap / reboot / repl /
-# help, plus app extensions (e.g. selftest). Stock `telnet` and `nc` work:
+# telnet port (23): built-in commands status / log / heap / reboot / help,
+# optional repl, plus app extensions (e.g. selftest). Stock `telnet` and `nc` work:
 #     telnet 10.9.30.76
 #
 # Set the device address once:  export OTC_IP=10.9.30.76  (DEVICE_IP works too)
@@ -13,7 +13,7 @@
 #   tools/net.sh log [IP] [N]            # last N log lines (default 40)
 #   tools/net.sh selftest [IP]           # run the device self-test remotely
 #   tools/net.sh reboot [IP]             # clean reboot (also triggers boot OTA)
-#   tools/net.sh console [IP]            # interactive shell (try 'repl')
+#   tools/net.sh console [IP]            # interactive command shell
 #   tools/net.sh discover [PORT]         # scan the local /24 for the device
 #
 # Shell port can be overridden:  OTC_SHELL_PORT=23 tools/net.sh status
