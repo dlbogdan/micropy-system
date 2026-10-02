@@ -265,7 +265,7 @@ download HTTP. After synchronization, ensure no stale
 board, and then use local HTTP OTA normally.
 EOF
 
-for entry in '.vscode/' '.micropico' '.venv/' '__pycache__/' '*.pyc' 'device/' 'build/' 'release/' 'system-config.json'; do
+for entry in '.vscode/' '.micropico' '.venv/' '__pycache__/' '*.pyc' 'device/' 'build/' 'release/' 'system-config.json' '.micropy-device-ip'; do
     append_ignore "$entry"
 done
 

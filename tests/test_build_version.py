@@ -31,6 +31,10 @@ class BuildVersionTests(unittest.TestCase):
         self.assertIn('run: python "$SUBMODULE_PATH/tools/assemble.py"', initializer)
         self.assertNotIn('run: python tools/assemble.py', initializer)
 
+    def test_initializer_ignores_the_default_device_ip_cache(self):
+        initializer = (Path(__file__).parents[1] / 'tools' / 'init_project.sh').read_text()
+        self.assertIn("'system-config.json' '.micropy-device-ip'", initializer)
+
     def test_legacy_packager_defaults_to_canonical_github_adapter(self):
         args = prepare_release.compatibility_args([])
         self.assertIn('github-assets', args)
