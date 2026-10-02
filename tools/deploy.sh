@@ -4,10 +4,10 @@
 # bump version -> build -> serve -> OTA over Wi-Fi -> wait for slot promotion
 # -> run the on-device self-test.
 #
-# Network-native by default: the board is rebooted over HTTP (its boot-time
-# OTA check then installs the update), promotion is polled via GET /status,
-# and the self-test runs over HTTP. The USB cable is never touched and the
-# app is never interrupted, so no final reset is needed.
+# Network-native by default: the board is rebooted over its shell (the
+# `reboot` command triggers the boot-time OTA check), promotion is polled via
+# the `status` command, and the self-test runs over the shell. The USB cable
+# is never touched and the app is never interrupted, so no final reset is needed.
 #
 # Usage: tools/deploy.sh [VERSION] [flags]
 #   VERSION          default: auto-bump the patch of the version file
@@ -16,7 +16,7 @@
 #   --app-root PATH  project root (default: auto-detect)
 #   --version-file P version file (default: <app-root>/app/version.txt)
 #   --port N         update-server port (default 8000; $PORT also honored)
-#   --http-port N    device HTTP port (default 8080; $OTC_HTTP_PORT honored)
+#   --shell-port N   device shell port (default 23; $OTC_SHELL_PORT honored)
 #   --ip-file P      remembered device IP file (default .micropy-device-ip)
 #
 # Device IP resolution: $DEVICE_IP / $OTC_IP -> remembered file (if it still
@@ -34,7 +34,7 @@ VERSION_ARG=""
 APP_ROOT=""
 VERSION_FILE=""
 PORT="${PORT:-8000}"
-HTTP_PORT="${OTC_HTTP_PORT:-8080}"
+SHELL_PORT="${OTC_SHELL_PORT:-23}"
 IP_FILE=""
 PENDING=""
 for arg in "$@"; do
@@ -43,7 +43,7 @@ for arg in "$@"; do
             approot)    APP_ROOT="$arg" ;;
             versionfile) VERSION_FILE="$arg" ;;
             port)       PORT="$arg" ;;
-            httpport)   HTTP_PORT="$arg" ;;
+            shellport)  SHELL_PORT="$arg" ;;
             ipfile)     IP_FILE="$arg" ;;
         esac
         PENDING=""
@@ -54,7 +54,7 @@ for arg in "$@"; do
         --app-root)     PENDING=approot ;;
         --version-file) PENDING=versionfile ;;
         --port)         PENDING=port ;;
-        --http-port)    PENDING=httpport ;;
+        --shell-port)   PENDING=shellport ;;
         --ip-file)      PENDING=ipfile ;;
         -h|--help)      sed -n '2,/^set -eu$/p' "$0" | sed '$d'; exit 0 ;;
         -*)             echo "Error: unknown argument '$arg' (try --help)" >&2; exit 2 ;;
@@ -181,7 +181,7 @@ if [ -n "${DEVICE_IP:-${OTC_IP:-}}" ]; then
     IP="${DEVICE_IP:-${OTC_IP:-}}"
 elif [ -f "$IP_FILE" ]; then
     CAND=$(tr -d '[:space:]' < "$IP_FILE")
-    if [ -n "$CAND" ] && curl -sf --max-time 3 "http://$CAND:$HTTP_PORT/status" >/dev/null 2>&1; then
+    if [ -n "$CAND" ] && "$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$CAND" "$SHELL_PORT" status >/dev/null 2>&1; then
         IP="$CAND"
         echo "    using remembered IP $CAND"
     fi
@@ -196,21 +196,20 @@ if [ -z "$IP" ]; then
     echo "Error: device not found on the LAN. Set OTC_IP=<ip> to skip discovery." >&2
     exit 1
 fi
-BASE="http://$IP:$HTTP_PORT"
-echo "==> Target: $BASE"
-curl -sf --max-time 5 "$BASE/status" >/dev/null \
-    || { echo "Error: $BASE/status unreachable. Check Wi-Fi / same subnet." >&2; exit 1; }
+echo "==> Target: shell $IP:$SHELL_PORT"
+"$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" status >/dev/null 2>&1 \
+    || { echo "Error: shell $IP:$SHELL_PORT unreachable. Check Wi-Fi / same subnet." >&2; exit 1; }
 
-echo "==> Rebooting board over HTTP (triggers boot-time OTA check)"
-curl -sf --max-time 5 -X POST "$BASE/reboot" >/dev/null 2>&1 || true
-# The board is now down: the boot-time OTA check runs before its HTTP service
+echo "==> Rebooting board over its shell (triggers boot-time OTA check)"
+"$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" reboot >/dev/null 2>&1 || true
+# The board is now down: the boot-time OTA check runs before its shell
 # comes back, so expect a gap of several seconds (longer mid-install).
 
 echo "==> Waiting for OTA install + slot promotion (timeout 240s)..."
 DEADLINE=$(( $(date +%s) + 240 ))
 OK=0
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
-    RAW=$(curl -sf --max-time 4 "$BASE/status" 2>/dev/null) || RAW=""
+    RAW=$("$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" status 2>/dev/null) || RAW=""
     if [ -n "$RAW" ]; then
         STATE=$(printf '%s' "$RAW" | "$PYTHON" -c '
 import json, sys
@@ -241,33 +240,20 @@ done
 
 if [ "$OK" -ne 1 ]; then
     echo "ERROR: board did not promote to $VERSION (last state: ${STATE:-unreachable})" >&2
-    echo "Hint: curl '$BASE/log?n=40' for the board's view of the boot/OTA." >&2
+    echo "Hint: tools/net.sh log $IP 40 for the board's view of the boot/OTA." >&2
     exit 1
 fi
 echo "==> Promoted: version=$V active_slot=$ACTIVE"
 
 # --- 6. Verify with the on-device self-test (HTTP) ------------------------------
-echo "==> Running on-device self-test (HTTP)"
-RESP=$(curl -sf --max-time 120 -X POST "$BASE/selftest" 2>/dev/null) \
-    || { echo "ERROR: self-test request to $BASE/selftest failed" >&2; exit 1; }
-PASS=$(printf '%s' "$RESP" | "$PYTHON" -c '
-import json, sys
-try:
-    print("1" if json.loads(sys.stdin.read()).get("pass") else "0")
-except ValueError:
-    print("0")
-')
-printf '%s' "$RESP" | "$PYTHON" -c '
-import json, sys
-try:
-    print(json.loads(sys.stdin.read()).get("output", "").strip())
-except ValueError:
-    print("(unparseable self-test response)")
-'
-if [ "$PASS" != "1" ]; then
-    echo "ERROR: on-device self-test FAILED" >&2
-    exit 1
-fi
+echo "==> Running on-device self-test (shell)"
+RESP=$("$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" selftest 2>/dev/null) \
+    || { echo "ERROR: self-test request failed (does the device register a selftest command?)" >&2; exit 1; }
+printf '%s\n' "$RESP"
+case "$RESP" in
+    PASS*) : ;;
+    *) echo "ERROR: on-device self-test FAILED" >&2; exit 1 ;;
+esac
 
 # The app was never interrupted (no USB REPL), so no final reset is needed.
 echo "==> DEPLOY OK: $VERSION is active, self-tested, and left running."

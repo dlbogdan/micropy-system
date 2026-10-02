@@ -1,9 +1,10 @@
 #!/bin/sh
-# Host-side client for a micropy-system device's network service (no USB).
+# Host-side client for a micropy-system device shell (no USB).
 #
-# The device exposes, once Wi-Fi is up:
-#   HTTP API      :8080   /status /log /reboot /selftest (+ app extensions)
-#   Debug console :8081   a line-based Python eval loop (raw TCP)
+# The device runs one telnet-style line command server on the standard
+# telnet port (23): built-in commands status / log / heap / reboot / repl /
+# help, plus app extensions (e.g. selftest). Stock `telnet` and `nc` work:
+#     telnet 10.9.30.76
 #
 # Set the device address once:  export OTC_IP=10.9.30.76  (DEVICE_IP works too)
 # or pass it as the first argument to any command.
@@ -12,16 +13,16 @@
 #   tools/net.sh log [IP] [N]            # last N log lines (default 40)
 #   tools/net.sh selftest [IP]           # run the device self-test remotely
 #   tools/net.sh reboot [IP]             # clean reboot (also triggers boot OTA)
-#   tools/net.sh console [IP]            # interactive debug console over TCP
+#   tools/net.sh console [IP]            # interactive shell (try 'repl')
 #   tools/net.sh discover [PORT]         # scan the local /24 for the device
 #
-# Ports can be overridden:  HTTP_PORT=8080 CONSOLE_PORT=8081 tools/net.sh status
+# Shell port can be overridden:  OTC_SHELL_PORT=23 tools/net.sh status
+# (SHELL_PORT works too; the OTA server's $PORT is a different thing.)
 set -eu
 
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 FRAMEWORK_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
-HTTP_PORT=${HTTP_PORT:-8080}
-CONSOLE_PORT=${CONSOLE_PORT:-8081}
+SHELL_PORT="${OTC_SHELL_PORT:-${SHELL_PORT:-23}}"
 
 # Strip --app-root [PATH] from anywhere in argv; the remaining words (the
 # command and its arguments) are dispatched below, so they must be kept as-is.
@@ -75,24 +76,32 @@ cmd=${1:-help}; shift || true
 
 case "$cmd" in
     status)
-        IP=$(resolve_ip ${1:-}); curl -s "http://$IP:$HTTP_PORT/status"; echo ;;
+        IP=$(resolve_ip ${1:-})
+        exec "$PY" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" status ;;
     log)
-        IP=$(resolve_ip ${1:-}); N=${2:-40}
-        curl -s "http://$IP:$HTTP_PORT/log?n=$N" ;;
+        # first arg is the IP unless it is a plain number (line count, IP from env)
+        LIP=""; N=${2:-40}
+        case ${1:-} in
+            ''|*[!0-9]*) LIP=${1:-} ;;
+            *) N=${1} ;;
+        esac
+        IP=$(resolve_ip ${LIP:-})
+        exec "$PY" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" log "$N" ;;
     selftest)
-        IP=$(resolve_ip ${1:-}); curl -s -X POST "http://$IP:$HTTP_PORT/selftest"; echo ;;
+        IP=$(resolve_ip ${1:-})
+        exec "$PY" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" selftest ;;
     reboot|update)
         IP=$(resolve_ip ${1:-})
         echo "Requesting reboot of $IP (boot-time OTA check will install any newer served build)..."
-        curl -s -X POST "http://$IP:$HTTP_PORT/reboot"; echo
+        "$PY" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" reboot
         echo "Device is rebooting. Re-check in a few seconds:  tools/net.sh status $IP" ;;
     console)
         IP=$(resolve_ip ${1:-})
-        exec "$PY" "$FRAMEWORK_ROOT/tools/console.py" "$IP" "$CONSOLE_PORT" ;;
+        exec "$PY" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" ;;
     discover)
-        exec "$PY" "$FRAMEWORK_ROOT/tools/discover.py" "${1:-$HTTP_PORT}" ;;
+        exec "$PY" "$FRAMEWORK_ROOT/tools/discover.py" "${1:-$SHELL_PORT}" ;;
     help|--help|-h)
-        sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//' ;;
+        sed -n '2,/^set -eu$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//' ;;
     *)
         echo "Error: unknown command '$cmd' (try: tools/net.sh help)" >&2
         exit 2

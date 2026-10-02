@@ -341,14 +341,30 @@ Every tool resolves the project root the same way: `--app-root` flag,
 then `$MICROPY_APP_ROOT`, then the git superproject, then the CWD — so they
 work from the project, the submodule, or anywhere else.
 
+### The device shell (on-device service)
+
+Once Wi-Fi is up, a device runs the framework's `lib/coresys/telnet_service.py`
+— a single telnet-style line command server on the standard telnet port
+(23). It replaces any per-app HTTP status/log/reboot/console services:
+
+- **Built-in commands**: `status` (one-line JSON: version, slot, uptime,
+  heap, wifi), `log [N]`, `heap`, `reboot` (ack, then `machine.reset()` —
+  the boot-time OTA check then installs any served update), `repl`
+  (persistent Python eval loop), `help`.
+- **App commands**: `shell.add("selftest", handler)` etc. from the app's
+  `main()`.
+- **Protocol**: plain lines; every answer ends with `<<<END>>>\n`; one
+  client at a time. Stock `telnet 10.9.30.76` / `nc 10.9.30.76 23` work,
+  as does `tools/telnet.py` (one-shot or interactive) and `tools/net.sh`.
+
 **Device lifecycle**
 
 | Tool | Purpose |
 | --- | --- |
 | `tools/device.py` | USB CLI: `state`, `log`, `monitor`, `files`, `selftest` (app hook), `probe` (app hook), `exec`, `reset` |
-| `tools/console.py` | Line-based network REPL client (`host port`, default 8081) |
-| `tools/discover.py` | LAN scanner for the device HTTP port; `--host` works cross-subnet when routed |
-| `tools/net.sh` | Shell client for the device HTTP API: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
+| `tools/telnet.py` | Device-shell client: one-shot `HOST [PORT] CMD ...` or interactive `HOST [PORT]`; default port 23 |
+| `tools/discover.py` | LAN scanner for the device shell port (default 23); `--host` works cross-subnet when routed |
+| `tools/net.sh` | Shell client for the device shell: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
 | `tools/render_config.py` | Resolve `system-config.json`: Wi-Fi overrides + OTA source from `update-source.json` |
 | `tools/provision.sh` | Full blank/corrupt-board provisioning engine (UF2 flash, LFS format, tree upload, passive boot/DHCP capture, final reset) |
 | `tools/assemble.py` | Assemble the `device/` A/B tree |
@@ -387,3 +403,12 @@ This project is licensed under the MIT License.
 
 - MicroPython project for providing the foundation
 - Asyncio library for MicroPython enabling non-blocking operations
+
+
+## everyday commands
+./micropy-system/tools/setup_build_env.sh
+./micropy-system/tools/build_firmware.sh
+OTC_IP=10.9.30.76 ./micropy-system/tools/deploy.sh
+python micropy-system/tools/device.py --app-root . --name otc selftest
+./micropy-system/tools/update_framework.sh
+.venv/bin/python micropy-system/tools/capture_boot.py

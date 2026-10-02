@@ -3,8 +3,8 @@
 #
 # Runs the framework's firmware_server.py over the build directory. The
 # board's FIRMWARE.DIRECT_BASE_URL (from update-source.json at provision
-# time) must point at this machine:PORT; then POST /reboot (or a power
-# cycle) makes it fetch metadata.json and the package.
+# time) must point at this machine:PORT; then the `reboot` shell command
+# (or a power cycle) makes it fetch metadata.json and the package.
 #
 # Usage: tools/serve_update.sh [PORT] [--app-root PATH] [--directory DIR]
 #   PORT      default 8000

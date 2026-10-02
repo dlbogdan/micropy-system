@@ -1,0 +1,115 @@
+#!/usr/bin/env python3
+"""Client for a micropy-system device shell (telnet-style lines on port 23).
+
+One-shot:    tools/telnet.py HOST [PORT] COMMAND [ARGS...]
+    tools/telnet.py 10.9.30.76 status
+    tools/telnet.py 10.9.30.76 log 40
+    tools/telnet.py 10.9.30.76 selftest
+    tools/telnet.py 10.9.30.76 reboot
+Interactive: tools/telnet.py HOST [PORT]
+    prints the banner, then sends each local line as a command; 'repl'
+    drops into the device's persistent Python loop; 'exit'/'quit' close.
+
+Stock telnet/nc work too (port 23 is the standard telnet port):
+    telnet 10.9.30.76
+    nc 10.9.30.76 23
+
+Protocol: the server answers every command with output lines terminated by
+'<<<END>>>\n'; a banner with the same marker is sent on connect.
+"""
+
+import socket
+import sys
+
+END_MARKER = "<<<END>>>"
+DEFAULT_PORT = 23
+CONNECT_TIMEOUT = 5
+READ_TIMEOUT = 120
+
+
+def _recv_until_end(s):
+    """Read from the socket until the END marker; return the payload bytes."""
+    buf = b""
+    marker = (END_MARKER + "\n").encode()
+    while marker not in buf:
+        chunk = s.recv(4096)
+        if not chunk:
+            break
+        buf += chunk
+    idx = buf.find(marker)
+    return buf[:idx] if idx >= 0 else buf
+
+
+def _connect(host, port):
+    s = socket.create_connection((host, port), timeout=CONNECT_TIMEOUT)
+    s.settimeout(READ_TIMEOUT)
+    return s
+
+
+def _write_out(payload):
+    sys.stdout.write(payload.decode("utf-8", "replace"))
+    if payload and not payload.endswith(b"\n"):
+        sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
+def _one_shot(host, port, command):
+    s = _connect(host, port)
+    try:
+        _recv_until_end(s)  # banner; discard
+        s.sendall((command + "\n").encode())
+        payload = _recv_until_end(s)
+    finally:
+        s.close()
+    _write_out(payload)
+
+
+def _interactive(host, port):
+    s = _connect(host, port)
+    try:
+        _write_out(_recv_until_end(s))  # banner
+        in_repl = False
+        while True:
+            try:
+                line = input("py> " if in_repl else "> ")
+            except (EOFError, KeyboardInterrupt):
+                print()
+                break
+            line = line.strip()
+            if not line:
+                continue
+            if line in ("exit", "quit"):
+                break
+            if line == "repl":
+                in_repl = True
+            s.sendall((line + "\n").encode())
+            _write_out(_recv_until_end(s))
+    finally:
+        s.close()
+
+
+def main():
+    args = sys.argv[1:]
+    if not args or args[0] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(2)
+    host = args[0]
+    port = DEFAULT_PORT
+    command = None
+    rest = args[1:]
+    if rest and rest[0].isdigit():
+        port = int(rest[0])
+        rest = rest[1:]
+    if rest:
+        command = " ".join(rest)
+    try:
+        if command:
+            _one_shot(host, port, command)
+        else:
+            _interactive(host, port)
+    except OSError as e:
+        sys.exit("error: %s:%s unreachable (%s)" % (host, port, e))
+
+
+if __name__ == "__main__":
+    main()

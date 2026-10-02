@@ -24,7 +24,7 @@
 #      WiFiManager's real DHCP address appear, then perform the required
 #      final reset so the device is left autonomous.
 #   7. If an SSID was configured and the device IP is known, confirm the
-#      board comes up on Wi-Fi over HTTP.
+#      board comes up on Wi-Fi over its shell.
 #
 # Usage:
 #   tools/provision.sh                    # Pico 2 W (RP2350) -- default
@@ -41,8 +41,8 @@
 #   --boot-marker TEXT         app serial marker for "app is running"
 #                              (default: "entering main loop")
 #   --ip-file PATH             where to record the detected IP (default .micropy-device-ip)
-#   --http-port PORT           HTTP status port for the autonomy check (default 8080)
-#   --skip-http                skip the final HTTP autonomy check
+#   --shell-port PORT          shell port for the autonomy check (default 23)
+#   --skip-shell               skip the final shell autonomy check
 #   --app-root PATH            application project root (default: auto-detect)
 #
 # Environment:
@@ -71,8 +71,8 @@ BOOT_MARKER="entering main loop"
 IP_FILE=".micropy-device-ip"
 BASE_ARG=""
 UPDATE_SOURCE_ARG=""
-HTTP_PORT=8080
-SKIP_HTTP=0
+SHELL_PORT=23
+SKIP_SHELL=0
 
 # --- Args ----------------------------------------------------------------------
 SSID_ARG=""
@@ -89,7 +89,7 @@ for arg in "$@"; do
             ip-file) IP_FILE="$arg" ;;
             base) BASE_ARG="$arg" ;;
             update-source) UPDATE_SOURCE_ARG="$arg" ;;
-            http-port) HTTP_PORT="$arg" ;;
+            shell-port) SHELL_PORT="$arg" ;;
         esac
         PENDING=""
         continue
@@ -105,8 +105,8 @@ for arg in "$@"; do
         --ip-file) PENDING=ip-file ;;
         --base) PENDING=base ;;
         --update-source) PENDING=update-source ;;
-        --http-port) PENDING=http-port ;;
-        --skip-http) SKIP_HTTP=1 ;;
+        --shell-port) PENDING=shell-port ;;
+        --skip-shell) SKIP_SHELL=1 ;;
         -h|--help) sed -n '2,60p' "$0"; exit 0 ;;
         *) echo "Error: unknown argument '$arg' (try --help)" >&2; exit 2 ;;
     esac
@@ -429,8 +429,11 @@ if [ -z "$FINAL_SSID" ]; then
     echo "    is autonomous but offline. Re-run with --ssid \"...\" --pass \"...\" to give it Wi-Fi."
     exit 0
 fi
-if [ "$SKIP_HTTP" = 1 ]; then
-    echo "==> PROVISION OK (USB-verified; --skip-http). Once it joins Wi-Fi: curl http://<ip>:$HTTP_PORT/status"
+PY="$APP_ROOT/.venv/bin/python"
+[ -x "$PY" ] || PY=python3
+
+if [ "$SKIP_SHELL" = 1 ]; then
+    echo "==> PROVISION OK (USB-verified; --skip-shell). Once it joins Wi-Fi: tools/net.sh status <ip>"
     exit 0
 fi
 IP="${DEVICE_IP:-${OTC_IP:-}}"
@@ -438,12 +441,11 @@ if [ -z "$IP" ]; then
     IP="$DETECTED_IP"
 fi
 if [ -n "$IP" ]; then
-    BASE="http://$IP:$HTTP_PORT"
-    echo "==> Checking Wi-Fi autonomy at $BASE"
+    echo "==> Checking Wi-Fi autonomy at shell $IP:$SHELL_PORT"
     deadline=$(( $(date +%s) + 60 ))
     OK=0
     while [ "$(date +%s)" -lt "$deadline" ]; do
-        RAW=$(curl -sf --max-time 4 "$BASE/status" 2>/dev/null) || RAW=""
+        RAW=$("$PY" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" status 2>/dev/null) || RAW=""
         case "$RAW" in
             *'"state": "Connected"'*|*'"state":"Connected"'*) OK=1; break ;;
         esac
@@ -451,9 +453,9 @@ if [ -n "$IP" ]; then
     done
     if [ "$OK" = 1 ]; then
         printf '%s\n' "$IP" > "$IP_FILE"
-        echo "==> PROVISION OK: $BOARD is autonomous at $BASE"
+        echo "==> PROVISION OK: $BOARD is autonomous at $IP (shell :$SHELL_PORT)"
         exit 0
     fi
-    echo "    note: $BASE did not report Wi-Fi within 60s (still connecting, or a different IP)."
+    echo "    note: $IP did not report Wi-Fi within 60s (still connecting, or a different IP)."
 fi
-echo "==> PROVISION OK (USB-verified). Once it joins Wi-Fi: curl http://<ip>:$HTTP_PORT/status"
+echo "==> PROVISION OK (USB-verified). Once it joins Wi-Fi: tools/net.sh status <ip>"
