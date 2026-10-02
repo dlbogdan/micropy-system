@@ -150,122 +150,60 @@ EOF
 
 write_file tools/setup_build_env.sh <<EOF
 #!/bin/sh
+# Shim: canonical venv setup lives in the framework ($SUBMODULE_PATH/tools/setup_build_env.sh).
 set -eu
 APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-SUBMODULE="$SUBMODULE_PATH"
-
-python3 -m venv "\$APP_ROOT/.venv"
-"\$APP_ROOT/.venv/bin/python" -m pip install --upgrade pip
-"\$APP_ROOT/.venv/bin/python" -m pip install \
-    --requirement "\$APP_ROOT/\$SUBMODULE/requirements-dev.txt"
-echo "Build environment is ready at \$APP_ROOT/.venv"
+exec "\$APP_ROOT/$SUBMODULE_PATH/tools/setup_build_env.sh" --app-root "\$APP_ROOT" "\$@"
 EOF
 
 write_file tools/build_firmware.sh <<EOF
 #!/bin/sh
+# Shim: canonical builder lives in the framework ($SUBMODULE_PATH/tools/build_firmware.sh).
 set -eu
 APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-SUBMODULE="$SUBMODULE_PATH"
-VERSION=\${1:-\$(cat "\$APP_ROOT/app/version.txt")}
-MODEL=\${2:-pico2-w-rp2350}
-PYTHON="\$APP_ROOT/.venv/bin/python"
-SOURCE_DIR="\$APP_ROOT/app"
-
-case "\$VERSION" in
-    *[!0-9.]*|*.*.*.*|.*|*.)
-        echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
-        exit 2
-        ;;
-esac
-if [ "\$(printf '%s' "\$VERSION" | awk -F. '{print NF}')" -ne 3 ]; then
-    echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
-    exit 2
-fi
-if [ ! -x "\$PYTHON" ]; then
-    echo "Error: build environment is missing. Run tools/setup_build_env.sh" >&2
-    exit 2
-fi
-
-if [ "\$#" -gt 0 ]; then shift; fi
-if [ "\$#" -gt 0 ]; then shift; fi
-"\$PYTHON" "\$APP_ROOT/tools/assemble.py"
-PATH="\$APP_ROOT/.venv/bin:\$PATH" "\$PYTHON" \
-    "\$APP_ROOT/\$SUBMODULE/local_builder.py" \
-    --source-dir "\$SOURCE_DIR" \
-    --output-dir "\$APP_ROOT/build" \
-    --model "\$MODEL" \
-    --version "\$VERSION" \
-    "\$@"
+exec "\$APP_ROOT/$SUBMODULE_PATH/tools/build_firmware.sh" --app-root "\$APP_ROOT" "\$@"
 EOF
 
 write_file tools/serve_update.sh <<EOF
 #!/bin/sh
+# Shim: canonical OTA update server lives in the framework ($SUBMODULE_PATH/tools/serve_update.sh).
 set -eu
 APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
-SUBMODULE="$SUBMODULE_PATH"
-PORT=\${1:-8000}
-PYTHON="\$APP_ROOT/.venv/bin/python"
-
-if [ ! -x "\$PYTHON" ]; then
-    echo "Error: build environment is missing. Run tools/setup_build_env.sh" >&2
-    exit 2
-fi
-if [ ! -f "\$APP_ROOT/build/metadata.json" ]; then
-    echo "Error: no direct-server build found. Run tools/build_firmware.sh first." >&2
-    exit 2
-fi
-
-"\$PYTHON" "\$APP_ROOT/\$SUBMODULE/firmware_server.py" \
-    --directory "\$APP_ROOT/build" \
-    --port "\$PORT"
+exec "\$APP_ROOT/$SUBMODULE_PATH/tools/serve_update.sh" --app-root "\$APP_ROOT" "\$@"
 EOF
 
-write_file tools/release_github.sh <<'EOF'
+write_file tools/release_github.sh <<EOF
 #!/bin/sh
+# Shim: canonical GitHub release cutter lives in the framework ($SUBMODULE_PATH/tools/release_github.sh).
 set -eu
-APP_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-VERSION=${1:-}
+APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
+exec "\$APP_ROOT/$SUBMODULE_PATH/tools/release_github.sh" --app-root "\$APP_ROOT" "\$@"
+EOF
 
-if [ -z "$VERSION" ]; then
-    echo "Usage: tools/release_github.sh MAJOR.MINOR.PATCH" >&2
-    exit 2
-fi
-VERSION=${VERSION#v}
-case "$VERSION" in
-    *[!0-9.]*|*.*.*.*|.*|*.)
-        echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
-        exit 2
-        ;;
-esac
-if [ "$(printf '%s' "$VERSION" | awk -F. '{print NF}')" -ne 3 ]; then
-    echo "Error: version must have the form MAJOR.MINOR.PATCH" >&2
-    exit 2
-fi
-TAG="v$VERSION"
+write_file tools/net.sh <<EOF
+#!/bin/sh
+# Shim: canonical device API client lives in the framework ($SUBMODULE_PATH/tools/net.sh).
+set -eu
+APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
+exec "\$APP_ROOT/$SUBMODULE_PATH/tools/net.sh" --app-root "\$APP_ROOT" "\$@"
+EOF
 
-if [ -n "$(git -C "$APP_ROOT" status --porcelain)" ]; then
-    echo "Error: commit or stash application changes before releasing." >&2
-    exit 1
-fi
-git -C "$APP_ROOT" fetch origin --tags
-if git -C "$APP_ROOT" rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
-    echo "Error: tag already exists: $TAG" >&2
-    exit 1
-fi
+write_file tools/deploy.sh <<EOF
+#!/bin/sh
+# Shim: canonical deploy orchestrator lives in the framework ($SUBMODULE_PATH/tools/deploy.sh).
+set -eu
+APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
+exec "\$APP_ROOT/$SUBMODULE_PATH/tools/deploy.sh" --app-root "\$APP_ROOT" "\$@"
+EOF
 
-BRANCH=$(git -C "$APP_ROOT" branch --show-current)
-if [ -z "$BRANCH" ]; then
-    echo "Error: cannot release from detached HEAD." >&2
-    exit 1
-fi
-git -C "$APP_ROOT" diff --quiet "origin/$BRANCH...HEAD" || {
-    echo "Error: local branch differs from origin/$BRANCH; push it first." >&2
-    exit 1
-}
-
-git -C "$APP_ROOT" tag -a "$TAG" -m "Firmware $TAG"
-git -C "$APP_ROOT" push origin "$TAG"
-echo "Pushed $TAG; GitHub Actions will build and publish the release."
+write_file tools/device.sh <<EOF
+#!/bin/sh
+# Shim: run the canonical USB device CLI with the project's venv Python.
+set -eu
+APP_ROOT=\$(CDPATH= cd -- "\$(dirname -- "\$0")/.." && pwd)
+PY="\$APP_ROOT/.venv/bin/python"
+[ -x "\$PY" ] || PY=python3
+exec env MICROPY_APP_ROOT="\$APP_ROOT" "\$PY" "\$APP_ROOT/$SUBMODULE_PATH/tools/device.py" "\$@"
 EOF
 
 write_file app/main.py <<'EOF'
@@ -461,7 +399,10 @@ chmod +x \
     "$PROJECT_ROOT/tools/device.py" \
     "$PROJECT_ROOT/tools/console.py" \
     "$PROJECT_ROOT/tools/discover.py" \
-    "$PROJECT_ROOT/tools/provision.sh"
+    "$PROJECT_ROOT/tools/provision.sh" \
+    "$PROJECT_ROOT/tools/net.sh" \
+    "$PROJECT_ROOT/tools/deploy.sh" \
+    "$PROJECT_ROOT/tools/device.sh"
 
 echo
 echo "Project initialized at $PROJECT_ROOT"
