@@ -101,9 +101,11 @@ esac
 echo "==> Deploying version $VERSION"
 
 # --- 2. Build ------------------------------------------------------------------
+echo "==> Building (log: $BUILD_LOG)..."
+BUILD_T=$(date +%s)
 "$FRAMEWORK_ROOT/tools/build_firmware.sh" --app-root "$APP_ROOT" "$VERSION" \
     >"$BUILD_LOG" 2>&1 || { echo "Build failed:"; tail -30 "$BUILD_LOG"; exit 1; }
-echo "==> Build OK"
+echo "==> Build OK ($(($(date +%s) - BUILD_T))s)"
 
 # --- 3. Ensure the update server is up on $PORT --------------------------------
 if ! curl -sf "http://127.0.0.1:$PORT/metadata.json" >/dev/null 2>&1; then
@@ -215,10 +217,12 @@ DEADLINE=$(( START + 240 ))
 OK=0
 while [ "$(date +%s)" -lt "$DEADLINE" ]; do
     EL=$(( $(date +%s) - START ))
-    RAW=$("$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" status 2>/dev/null) || RAW=""
+    # OTC_CMD_TIMEOUT caps a poll that connects to a half-booted board (the
+    # shell may not be up yet) so one bad poll costs ~6s, not minutes.
+    RAW=$(OTC_CMD_TIMEOUT=6 "$PYTHON" "$FRAMEWORK_ROOT/tools/telnet.py" "$IP" "$SHELL_PORT" status 2>/dev/null) || RAW=""
     case "$RAW" in
         busy*) echo "    [t=${EL}s] shell is busy - close the other client (one at a time); retrying..."
-               sleep 4
+               sleep 2
                continue ;;
     esac
     if [ -n "$RAW" ]; then
@@ -241,15 +245,15 @@ print("%s|%s|%s" % (d.get("version"), s.get("active"), s.get("rejected")))
                 break
             fi
             echo "    [t=${EL}s] up as $V (want $VERSION) - waiting for OTA install..."
-            sleep 4
+            sleep 2
             continue
         fi
         echo "    [t=${EL}s] unexpected reply: ${RAW:0:60}; retrying..."
-        sleep 4
+        sleep 2
         continue
     fi
     echo "    [t=${EL}s] board still down (expected mid-OTA) - retrying..."
-    sleep 4
+    sleep 2
 done
 
 if [ "$OK" -ne 1 ]; then
@@ -257,7 +261,7 @@ if [ "$OK" -ne 1 ]; then
     echo "Hint: tools/net.sh log $IP 40 for the board's view of the boot/OTA." >&2
     exit 1
 fi
-echo "==> Promoted: version=$V active_slot=$ACTIVE"
+echo "==> Promoted: version=$V active_slot=$ACTIVE (board down ~${EL}s)"
 
 # --- 6. Verify with the on-device self-test (HTTP) ------------------------------
 echo "==> Running on-device self-test (shell)"

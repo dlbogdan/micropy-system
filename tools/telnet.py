@@ -18,6 +18,7 @@ Protocol: the server answers every command with output lines terminated by
 '<<<END>>>\n'; a banner with the same marker is sent on connect.
 """
 
+import os
 import socket
 import sys
 
@@ -25,6 +26,10 @@ END_MARKER = "<<<END>>>"
 DEFAULT_PORT = 23
 CONNECT_TIMEOUT = 5
 READ_TIMEOUT = 120
+# One-shot commands must never hang on a half-booted board (a connect can
+# complete against a board whose shell is not up yet, then block on the banner
+# read). Cap every one-shot read; interactive mode keeps READ_TIMEOUT.
+CMD_TIMEOUT = float(os.environ.get("OTC_CMD_TIMEOUT", "10"))
 
 
 def _recv_until_end(s):
@@ -40,9 +45,9 @@ def _recv_until_end(s):
     return buf[:idx] if idx >= 0 else buf
 
 
-def _connect(host, port):
+def _connect(host, port, read_timeout=READ_TIMEOUT):
     s = socket.create_connection((host, port), timeout=CONNECT_TIMEOUT)
-    s.settimeout(READ_TIMEOUT)
+    s.settimeout(read_timeout)
     return s
 
 
@@ -54,7 +59,7 @@ def _write_out(payload):
 
 
 def _one_shot(host, port, command):
-    s = _connect(host, port)
+    s = _connect(host, port, CMD_TIMEOUT)
     try:
         _recv_until_end(s)  # banner; discard
         s.sendall((command + "\n").encode())
@@ -107,6 +112,8 @@ def main():
             _one_shot(host, port, command)
         else:
             _interactive(host, port)
+    except socket.timeout:
+        sys.exit("error: %s:%s timed out (board may be mid-boot / half-up)" % (host, port))
     except OSError as e:
         sys.exit("error: %s:%s unreachable (%s)" % (host, port, e))
 
