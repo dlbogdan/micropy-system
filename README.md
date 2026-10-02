@@ -328,6 +328,27 @@ Release asset metadata includes the model, compressed size, SHA-256,
 MicroPython runtime version, and MPY format. The device validates these fields
 before decompressing the update.
 
+## Device tools
+
+Host-side device tooling is owned by the framework under `tools/`.
+`tools/init_project.sh` generates thin project shims under the project's
+`tools/` so existing CLIs keep working; updates to the tools flow through
+`tools/update_framework.sh` instead of being re-copied per project.
+
+| Tool | Purpose |
+| --- | --- |
+| `tools/device.py` | USB CLI: `state`, `log`, `monitor`, `files`, `selftest` (app hook), `probe` (app hook), `exec`, `reset` |
+| `tools/console.py` | Line-based network REPL client (`host port`, default 8081) |
+| `tools/discover.py` | LAN scanner for the device HTTP port; `--host` works cross-subnet when routed |
+| `tools/render_config.py` | Resolve `system-config.json`: Wi-Fi overrides + OTA source from `update-source.json` |
+| `tools/provision.sh` | Full blank/corrupt-board provisioning engine (UF2 flash, LFS format, tree upload, passive boot/DHCP capture, final reset) |
+| `tools/assemble.py` | Assemble the `device/` A/B tree (`--app-root`) |
+
+`mpremote` and `pyserial` come from `requirements-dev.txt` (installed by the
+generated `tools/setup_build_env.sh`). The provisioning engine expects the
+app to log a main-loop marker over serial (default: `entering main loop`,
+configurable with `--boot-marker`).
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
