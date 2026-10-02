@@ -160,7 +160,7 @@ else
 fi
 [ -f "$CONFIG_SRC" ] || { echo "Error: base config not found: $CONFIG_SRC" >&2; exit 2; }
 echo "==> Assembling a fresh device tree"
-"$PYTHON" tools/assemble.py >/dev/null
+"$PYTHON" "$FRAMEWORK_ROOT/tools/assemble.py" >/dev/null
 [ -f device/boot.py ] && [ -f device/main.py ] \
     || { echo "Error: device/ tree missing after assemble.py" >&2; exit 2; }
 echo "==> Device tree ready (board: $BOARD)"

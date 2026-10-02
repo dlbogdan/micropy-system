@@ -164,14 +164,17 @@ local server, so local and GitHub modes coexist.
   Framework code under `lib/coresys/` reaches an *existing* board only via
   re-provisioning (or a shell-`repl` injection + reboot); a fresh board gets
   everything from `provision.sh`.
-- **A/B safety:** updates install into the inactive slot; the candidate must
-  confirm within the watchdog window, otherwise the board rolls back and
-  quarantines the version. The candidate boot lives only ~1–2 s after the app
-  confirms (the framework reboots once to shed the un-stoppable hardware
-  watchdog). App contract: sample `load_state()["pending"]` *before* calling
-  `confirm_running_slot()` and hold non-idempotent physical actuation (boiler,
-  relays, setpoint release) for the active boot — the actuator's last state
-  persists across the confirmation reboot, so nothing flickers.
+- **Power-on self-test (POST) + A/B safety:** the *framework launcher*
+  (`main.py` from `slot_main.py`, harness `lib/coresys/post.py`) runs a
+  power-on self-test on every boot *before* a candidate may confirm — a
+  free-heap check plus the guest's optional `post_checks()` hook (a list of
+  `(name, ok, detail)` tuples defined on `app_entry`). A passing candidate is
+  confirmed inside the watchdog window; a failing one is rolled back and
+  quarantined, so the guest never owns A/B safety. The launcher records the
+  boot context; the app reads `post.is_candidate_boot()` / `post.is_degraded()`
+  and holds non-idempotent physical actuation (boiler, relays, setpoint
+  release) for a candidate or degraded boot. A guest with no `post_checks()`
+  still gets the heap check and full confirm/rollback protection.
 - **USB stops the app:** `mpremote` (Ctrl-C) interrupts whatever is running.
   After provisioning, do everything over the shell (port 23).
 
