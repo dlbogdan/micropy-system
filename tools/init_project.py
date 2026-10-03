@@ -121,16 +121,16 @@ This application uses `micropy-system` as a pinned Git submodule.
 
 ```sh
 # One-time local toolchain setup
-__SUBMODULE__/tools/setup_build_env.sh
+__SUBMODULE__/tools/setup_build_env.py
 
 # Build, serve, deploy, and maintain
-__SUBMODULE__/tools/build_firmware.sh
-__SUBMODULE__/tools/serve_update.sh
-__SUBMODULE__/tools/deploy.sh
-__SUBMODULE__/tools/update_framework.sh
+__SUBMODULE__/tools/build_firmware.py
+__SUBMODULE__/tools/serve_update.py
+__SUBMODULE__/tools/deploy.py
+__SUBMODULE__/tools/update_framework.py
 
 # Trigger the GitHub release workflow
-__SUBMODULE__/tools/release_github.sh 1.0.1
+__SUBMODULE__/tools/release_github.py 1.0.1
 ```
 
 For MicroPico deployment, copy `system-config.example.json` to the ignored

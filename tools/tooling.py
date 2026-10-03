@@ -45,7 +45,7 @@ def project_python(app_root: Path, required=True) -> Path:
         return candidate
     if required:
         raise FileNotFoundError(
-            "build environment is missing; run tools/setup_build_env.sh")
+            "build environment is missing; run tools/setup_build_env.py")
     return Path(sys.executable)
 
 

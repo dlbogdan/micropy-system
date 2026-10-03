@@ -96,8 +96,8 @@ e.g. `vendor/micropy-system/`).
 
 ```sh
 git submodule add https://github.com/dlbogdan/micropy-system.git micropy-system
-./micropy-system/tools/init_project.sh    # app skeleton + templates (non-destructive)
-./micropy-system/tools/setup_build_env.sh # .venv with mpy-cross, pyserial, ...
+./micropy-system/tools/init_project.py    # app skeleton + templates (non-destructive)
+./micropy-system/tools/setup_build_env.py # .venv with mpy-cross, pyserial, ...
 git add -A && git commit -m "Bootstrap micropy-system project"
 ```
 
@@ -116,8 +116,8 @@ git add -A && git commit -m "Bootstrap micropy-system project"
 ### 3. Provision a blank board (one time, over USB)
 
 ```sh
-./micropy-system/tools/provision.sh --ssid "MyNet" --pass "secret"          # Pico 2 W (RP2350)
-./micropy-system/tools/provision.sh --board pico-w --ssid "MyNet" --pass "secret"  # Pico W (RP2040)
+./micropy-system/tools/provision.py --ssid "MyNet" --pass "secret"          # Pico 2 W (RP2350)
+./micropy-system/tools/provision.py --board pico-w --ssid "MyNet" --pass "secret"  # Pico W (RP2040)
 ```
 
 Flashes the pinned MicroPython 1.29.0, formats the data LFS (a UF2 flash does
@@ -128,10 +128,10 @@ No network needed; the board is then autonomous.
 ### 4. Develop and deploy (Wi-Fi only, no USB)
 
 ```sh
-DEVICE_IP=10.9.30.76 ./micropy-system/tools/deploy.sh
+DEVICE_IP=10.9.30.76 ./micropy-system/tools/deploy.py
 ```
 
-`deploy.sh` bumps `app/version.txt`, builds the app-only OTA package into
+`deploy.py` bumps `app/version.txt`, builds the app-only OTA package into
 `build/`, (re)starts the local update server on `:8000`, reboots the board
 over its shell (the boot-time OTA check downloads + installs *before* the
 shell comes back — a silent ~10–20 s gap is normal), polls for A/B slot
@@ -151,11 +151,11 @@ active and the board is left running.
 ### 6. Release to GitHub (optional)
 
 ```sh
-./micropy-system/tools/release_github.sh 1.2.0   # tag + push; project CI builds the release
+./micropy-system/tools/release_github.py 1.2.0   # tag + push; project CI builds the release
 ```
 
 Point boards at it by switching `update-source.json` to `"github"` mode and
-re-provisioning (or editing the board config) — `deploy.sh` always uses the
+re-provisioning (or editing the board config) — `deploy.py` always uses the
 local server, so local and GitHub modes coexist.
 
 ### Update-model facts that matter
@@ -163,7 +163,7 @@ local server, so local and GitHub modes coexist.
 - **OTA packages carry only the app slot** (`app_entry.py` + app modules).
   Framework code under `lib/coresys/` reaches an *existing* board only via
   re-provisioning (or a shell-`repl` injection + reboot); a fresh board gets
-  everything from `provision.sh`.
+  everything from `provision.py`.
 - **Power-on self-test (POST) + A/B safety:** the *framework launcher*
   (`main.py` from `slot_main.py`, harness `lib/coresys/post.py`) runs a
   power-on self-test on every boot *before* a candidate may confirm — a
@@ -204,8 +204,8 @@ initializer:
 ```sh
 git submodule add https://github.com/dlbogdan/micropy-system.git vendor/micropy-system
 git submodule update --init --recursive
-vendor/micropy-system/tools/init_project.sh
-vendor/micropy-system/tools/setup_build_env.sh
+vendor/micropy-system/tools/init_project.py
+vendor/micropy-system/tools/setup_build_env.py
 cp system-config.example.json system-config.json
 ```
 
@@ -265,8 +265,8 @@ invoke the framework tools through the submodule path, so their local flow is
 simply:
 
 ```sh
-micropy-system/tools/build_firmware.sh 1.0.1 pico2-w-rp2350
-micropy-system/tools/serve_update.sh
+micropy-system/tools/build_firmware.py 1.0.1 pico2-w-rp2350
+micropy-system/tools/serve_update.py
 ```
 
 If port 8000 is already occupied, either stop the existing server or choose a
@@ -286,9 +286,9 @@ production GitHub downloads continue to use HTTPS.
 3. Build and assemble using the framework's helper:
 
    ```sh
-   micropy-system/tools/build_firmware.sh
+   micropy-system/tools/build_firmware.py
    # Or select version and board explicitly:
-   micropy-system/tools/build_firmware.sh 1.2.3 pico2-w-rp2350
+   micropy-system/tools/build_firmware.py 1.2.3 pico2-w-rp2350
    ```
 
    This refreshes the bootstrap-only `device` tree and creates the A/B OTA
@@ -296,7 +296,7 @@ production GitHub downloads continue to use HTTPS.
 4. Keep the local server running in a separate terminal:
 
    ```sh
-   micropy-system/tools/serve_update.sh 8000
+   micropy-system/tools/serve_update.py 8000
    ```
 
    The build port, server port, and `DIRECT_BASE_URL` port must match. Do not
@@ -409,7 +409,7 @@ When this repository is installed at `vendor/micropy-system` as a Git
 submodule, initialize the surrounding application repository with:
 
 ```sh
-vendor/micropy-system/tools/init_project.sh
+vendor/micropy-system/tools/init_project.py
 ```
 
 The initializer never overwrites existing files. It creates an application
@@ -427,17 +427,16 @@ before decompressing the update.
 Host-side device tooling is owned by the framework under `tools/`.
 Projects do not ship their own tooling: the initializer generates no project
 tools, and each helper is invoked from the project through the submodule path
-(e.g. `./micropy-system/tools/deploy.sh`). A project refreshes its framework
-checkout with `tools/update_framework.sh` and then commits the pointer.
+(e.g. `./micropy-system/tools/deploy.py`). A project refreshes its framework
+checkout with `tools/update_framework.py` and then commits the pointer.
 
 Every tool resolves the project root the same way: `--app-root` flag,
 then `$MICROPY_APP_ROOT`, then the git superproject, then the CWD — so they
 work from the project, the submodule, or anywhere else.
 
-The canonical implementations are Python modules under `tools/`. Existing
-`.sh` command names are retained as five-line compatibility launchers, so
-project documentation and automation do not break; they contain no business
-logic or embedded Python. The tools support macOS and Linux. USB discovery uses
+Every tool is a Python entry point under `tools/` (executable, with a
+`#!/usr/bin/env python3` shebang) — run it directly or via `python3`.
+The tools support macOS and Linux. USB discovery uses
 pyserial plus `/dev/cu.usb*`, `/dev/ttyACM*`, and `/dev/ttyUSB*`; BOOTSEL media
 is found under `/Volumes`, `/media`, `/run/media`, or `/mnt`. On Linux,
 `udisksctl` is used to mount an unmounted BOOTSEL volume when available.
@@ -459,13 +458,13 @@ Once Wi-Fi is up, a device runs the framework's `lib/coresys/telnet_service.py`
   explicitly pass `allow_repl=True` to `TelnetService` to expose it.
 - **Authentication**: pass `auth_token=...` to `TelnetService` to require
   `auth TOKEN` before every connection can issue commands. Set the same value
-  in `MICROPY_SHELL_TOKEN` when using `tools/telnet.py` or `tools/net.sh`.
+  in `MICROPY_SHELL_TOKEN` when using `tools/telnet.py` or `tools/net.py`.
   Omitting `auth_token` preserves an unauthenticated diagnostic shell.
 - **App commands**: `shell.add("selftest", handler)` etc. from the app's
   `main()`.
 - **Protocol**: plain lines; every answer ends with `<<<END>>>\n`; one
   client at a time. Stock `telnet 10.9.30.76` / `nc 10.9.30.76 23` work,
-  as does `tools/telnet.py` (one-shot or interactive) and `tools/net.sh`.
+  as does `tools/telnet.py` (one-shot or interactive) and `tools/net.py`.
 
 **Device lifecycle**
 
@@ -474,30 +473,30 @@ Once Wi-Fi is up, a device runs the framework's `lib/coresys/telnet_service.py`
 | `tools/device.py` | USB CLI: `state`, `log`, `monitor`, `files`, `selftest` (app hook), `probe` (app hook), `exec`, `reset` |
 | `tools/telnet.py` | Device-shell client: one-shot `HOST [PORT] CMD ...` or interactive `HOST [PORT]`; default port 23 |
 | `tools/discover.py` | LAN scanner for the device shell port (default 23); `--host` works cross-subnet when routed |
-| `tools/net.sh` | Shell client for the device shell: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
+| `tools/net.py` | Shell client for the device shell: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
 | `tools/render_config.py` | Resolve `system-config.json`: Wi-Fi overrides + OTA source from `update-source.json` |
-| `tools/provision.sh` | Full blank/corrupt-board provisioning engine (UF2 flash, LFS format, tree upload, passive boot/DHCP capture, final reset) |
+| `tools/provision.py` | Full blank/corrupt-board provisioning engine (UF2 flash, LFS format, tree upload, passive boot/DHCP capture, final reset) |
 | `tools/assemble.py` | Assemble the `device/` A/B tree |
 
 **Build, release, and deploy**
 
 | Tool | Purpose |
 | --- | --- |
-| `tools/setup_build_env.sh` | Create/refresh the project `.venv` from `requirements-dev.txt` |
-| `tools/build_firmware.sh` | `[VERSION] [MODEL]` → assemble + compile + package the OTA update into `build/` |
-| `tools/serve_update.sh` | `[PORT]` → serve `build/` for direct-server OTA (`firmware_server.py`) |
-| `tools/release_github.sh` | `MAJOR.MINOR.PATCH` → tag + push; the project's CI builds the GitHub release |
-| `tools/deploy.sh` | End-to-end: bump version → build → serve → OTA over Wi-Fi → wait for A/B promotion → self-test (`--usb` legacy path available) |
+| `tools/setup_build_env.py` | Create/refresh the project `.venv` from `requirements-dev.txt` |
+| `tools/build_firmware.py` | `[VERSION] [MODEL]` → assemble + compile + package the OTA update into `build/` |
+| `tools/serve_update.py` | `[PORT]` → serve `build/` for direct-server OTA (`firmware_server.py`) |
+| `tools/release_github.py` | `MAJOR.MINOR.PATCH` → tag + push; the project's CI builds the GitHub release |
+| `tools/deploy.py` | End-to-end: bump version → build → serve → OTA over Wi-Fi → wait for A/B promotion → self-test (`--usb` legacy path available) |
 
 **Framework maintenance and debug**
 
 | Tool | Purpose |
 | --- | --- |
-| `tools/update_framework.sh` | Update the framework's own submodule checkout in the consuming project (fetch + ff-merge); the project then commits the pointer |
+| `tools/update_framework.py` | Update the framework's own submodule checkout in the consuming project (fetch + ff-merge); the project then commits the pointer |
 | `tools/capture_boot.py` | Capture serial output across a board reset (DTR/RTS toggle) to inspect the reset cause / crash |
 
 `mpremote` and `pyserial` come from `requirements-dev.txt` (installed by
-`tools/setup_build_env.sh`). The provisioning engine expects the app to log a
+`tools/setup_build_env.py`). The provisioning engine expects the app to log a
 main-loop marker over serial (default: `entering main loop`, configurable with
 `--boot-marker`).
 
@@ -516,9 +515,9 @@ This project is licensed under the MIT License.
 
 
 ## everyday commands
-./micropy-system/tools/setup_build_env.sh
-./micropy-system/tools/build_firmware.sh
-OTC_IP=10.9.30.76 ./micropy-system/tools/deploy.sh
+./micropy-system/tools/setup_build_env.py
+./micropy-system/tools/build_firmware.py
+OTC_IP=10.9.30.76 ./micropy-system/tools/deploy.py
 python micropy-system/tools/device.py --app-root . --name otc selftest
-./micropy-system/tools/update_framework.sh
+./micropy-system/tools/update_framework.py
 .venv/bin/python micropy-system/tools/capture_boot.py

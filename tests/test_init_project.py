@@ -6,7 +6,7 @@ import unittest
 
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
-INITIALIZER = FRAMEWORK_ROOT / "tools" / "init_project.sh"
+INITIALIZER = FRAMEWORK_ROOT / "tools" / "init_project.py"
 ASSEMBLER = FRAMEWORK_ROOT / "tools" / "assemble.py"
 
 

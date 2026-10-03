@@ -21,7 +21,7 @@ def main(argv=None):
     try:
         import serial
     except ImportError:
-        raise SystemExit("pyserial is missing; run tools/setup_build_env.sh")
+        raise SystemExit("pyserial is missing; run tools/setup_build_env.py")
     port = find_serial_port(args.port)
     if not port:
         raise SystemExit(

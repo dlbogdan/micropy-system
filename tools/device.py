@@ -25,7 +25,7 @@ Examples
 
 The serial port is auto-detected on macOS and Linux; override with --port.
 mpremote and pyserial are expected in the project's .venv (created by
-tools/setup_build_env.sh from the framework's requirements-dev.txt).
+tools/setup_build_env.py from the framework's requirements-dev.txt).
 """
 
 import argparse

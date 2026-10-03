@@ -61,7 +61,7 @@ def render(base, out, ssid="", passwd="", name="", update_source=None):
         w["PASS"] = ""
 
     # Populate the FIRMWARE (OTA) section from the update-source file:
-    # mode "local"   -> DIRECT_BASE_URL (update server, e.g. tools/serve_update.sh)
+    # mode "local"   -> DIRECT_BASE_URL (update server, e.g. tools/serve_update.py)
     # mode "github"  -> GITHUB_REPO (+ optional token) for release-based OTA
     fw = cfg.setdefault("FIRMWARE", {})
     us = None

@@ -180,7 +180,7 @@ def deploy(args):
     started = time.monotonic()
     with build_log.open("w") as output:
         result = subprocess.run(
-            [str(root / "tools" / "build_firmware.sh"), "--app-root",
+            [str(root / "tools" / "build_firmware.py"), "--app-root",
              str(app_root), version], stdout=output, stderr=subprocess.STDOUT,
             check=False)
     if result.returncode != 0:
@@ -193,7 +193,7 @@ def deploy(args):
         print("==> Starting update server on :%d" % args.port)
         output = serve_log.open("a")
         subprocess.Popen(
-            [str(root / "tools" / "serve_update.sh"), str(args.port),
+            [str(root / "tools" / "serve_update.py"), str(args.port),
              "--app-root", str(app_root)], stdout=output,
             stderr=subprocess.STDOUT, start_new_session=True)
         for _ in range(30):

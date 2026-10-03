@@ -200,7 +200,7 @@ def provision(args):
     mpremote_path = project_executable(app_root, "mpremote")
     if not mpremote_path.is_file():
         raise FileNotFoundError(
-            "mpremote not found in .venv; run tools/setup_build_env.sh")
+            "mpremote not found in .venv; run tools/setup_build_env.py")
 
     config_source = choose_config(app_root, args.base)
     if config_source.name == "system-config.example.json":
