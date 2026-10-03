@@ -104,10 +104,17 @@ class TelnetService:
         return json.dumps(d)
 
     def _log(self, args):
+        parts = args.split() if args else []
+        if parts and parts[0].lower() == "clear":
+            # Manual maintenance: truncate log.txt + lasterror.json in place.
+            # Not written to the (now-empty) log -- it would just re-add noise.
+            if logger.clear_log():
+                return "OK: log cleared (log.txt + lasterror.json)"
+            return "failed to clear log"
         n = 40
-        if args:
+        if parts:
             try:
-                n = int(args.split()[0])
+                n = int(parts[0])
             except ValueError:
                 pass
         n = min(200, max(1, n))
@@ -134,6 +141,7 @@ class TelnetService:
         rows = [
             "status    one-line JSON: version, slot, uptime, heap, wifi",
             "log [N]   last N log lines (default 40, max 200)",
+            "log clear clear the log file (log.txt + lasterror.json)",
             "heap      heap free/used after a GC pass",
             "reboot    acknowledge, then machine.reset()",
             "help      this list",

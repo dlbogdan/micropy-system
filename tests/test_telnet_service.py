@@ -21,6 +21,8 @@ def load_telnet_service():
     fake_logger = types.ModuleType("lib.coresys.logger")
     fake_logger.info = lambda *args, **kwargs: None
     fake_logger.error = lambda *args, **kwargs: None
+    fake_logger.clear_log = lambda: True
+    fake_logger.clear_error_log = lambda: None
     fake_ota_state = types.ModuleType("lib.coresys.ota_state")
     fake_ota_state.load_state = lambda: {}
     fake_lib = types.ModuleType("lib")
@@ -136,6 +138,38 @@ class TelnetServiceTests(unittest.TestCase):
         asyncio.run(service._handle(reader, writer))
 
         self.assertIn("error: boom", writer.output.decode())
+
+    def test_log_clear_reports_success(self):
+        # `log clear` truncates the log (via logger.clear_log) and reports OK.
+        module = load_telnet_service()
+        service = module.TelnetService()
+        self.assertIn("OK: log cleared", service._log("clear"))
+
+    def test_log_clear_is_case_insensitive_and_in_help(self):
+        module = load_telnet_service()
+        service = module.TelnetService()
+        self.assertIn("OK: log cleared", service._log("CLEAR"))
+        self.assertIn("log clear", service._help(""))
+
+    def test_log_numeric_tail_still_works(self):
+        # Adding the `clear` subcommand must not break `log [N]`.
+        import tempfile
+        module = load_telnet_service()
+        service = module.TelnetService()
+        with tempfile.NamedTemporaryFile("w", delete=False) as fh:
+            for i in range(10):
+                fh.write("line %d\n" % i)
+            path = fh.name
+        service.log_path = path
+        try:
+            result = service._log("3")
+            self.assertIn("line 9", result)
+            self.assertIn("line 8", result)
+            self.assertIn("line 7", result)
+            self.assertNotIn("line 6", result)
+        finally:
+            import os as _os
+            _os.remove(path)
 
     def test_auth_token_gates_all_commands(self):
         module = load_telnet_service()

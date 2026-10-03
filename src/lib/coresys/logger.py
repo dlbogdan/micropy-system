@@ -143,6 +143,29 @@ def clear_error_log():
     except Exception as e:
         _log_to_file("ERROR", f"Failed to clear error log: {e}")
 
+def clear_log():
+    """Clear the main log file (``log.txt``) and the last-error record.
+
+    Truncates both in place (does not delete the files), so a log that is
+    currently being tailed or read stays a valid file. Returns True on
+    success. This is a manual maintenance operation -- it is only called
+    explicitly (e.g. the shell's ``log clear``), never automatically.
+    """
+    ok = True
+    try:
+        with open(LOG_FILE, 'w') as f:
+            f.write("")
+    except Exception as e:
+        print(f"Failed to clear log file: {e}")
+        ok = False
+    # Also drop the last-error record (a stale error is misleading after a
+    # clear); clear_error_log() swallows its own failure.
+    try:
+        clear_error_log()
+    except Exception:
+        pass
+    return ok
+
 def reset_error_rate_limiter():
     """Reset the error rate limiter flag."""
     global _error_rate_limiter_reached, _error_timestamps
