@@ -168,13 +168,18 @@ class TelnetService:
 
     # -------------------------------------------------------------------- handler
     async def _handle(self, reader, writer):
-        try:
-            if self._busy:
+        if self._busy:
+            # A second client may only be REJECTED; it must not clear the
+            # flag the active client still owns.
+            try:
                 writer.write(("busy: one client at a time\n"
                               + END_MARKER + "\n").encode())
                 await writer.drain()
-                return
-            self._busy = True
+            finally:
+                await self._close(writer)
+            return
+        self._busy = True
+        try:
             authenticated = self.auth_token is None
             auth_notice = ("Authentication required: auth TOKEN\n"
                            if not authenticated else "")
@@ -214,10 +219,23 @@ class TelnetService:
             logger.error("Telnet handler error: %s" % e, log_to_file=True)
         finally:
             self._busy = False
-            try:
-                writer.close()
-            except Exception:
-                pass
+            await self._close(writer)
+
+    @staticmethod
+    async def _close(writer):
+        """Release the socket.
+
+        uasyncio's ``writer.close()`` is a coroutine that must be awaited; a
+        synchronous ``close()`` (host test fakes) returns ``None``. Without
+        the await the socket is never released and the Pico's small socket
+        pool leaks until new connections time out.
+        """
+        try:
+            close = writer.close()
+            if close is not None and hasattr(close, "__await__"):
+                await close
+        except Exception:
+            pass
 
     async def _dispatch(self, line, writer):
         name, _, arg = line.partition(" ")

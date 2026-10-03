@@ -70,6 +70,19 @@ class _Writer:
 
 
 class TelnetServiceTests(unittest.TestCase):
+    def test_busy_connection_is_rejected_without_clearing_flag(self):
+        module = load_telnet_service()
+        service = module.TelnetService()
+        service._busy = True  # an active client owns the flag
+        reader = _Reader([b"status\n"])
+        writer = _Writer()
+
+        asyncio.run(service._handle(reader, writer))
+
+        self.assertIn("busy: one client at a time", writer.output.decode())
+        self.assertTrue(writer.closed)
+        self.assertTrue(service._busy)  # still owned by the active client
+
     def test_repl_is_disabled_by_default(self):
         module = load_telnet_service()
         service = module.TelnetService()
