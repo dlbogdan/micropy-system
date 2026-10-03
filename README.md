@@ -466,34 +466,39 @@ Once Wi-Fi is up, a device runs the framework's `lib/coresys/telnet_service.py`
   client at a time. Stock `telnet 10.9.30.76` / `nc 10.9.30.76 23` work,
   as does `tools/target/telnet.py` (one-shot or interactive) and `tools/target/net.py`.
 
-**Device lifecycle**
+Tools are grouped by function, mirroring the directory layout (`tools/tooling.py` is shared plumbing imported by the others, not a command):
+
+**`tools/target/` — everything that talks to a Pico**
 
 | Tool | Purpose |
 | --- | --- |
-| `tools/target/device.py` | USB CLI: `state`, `log`, `monitor`, `files`, `selftest` (app hook), `probe` (app hook), `exec`, `reset` |
-| `tools/target/telnet.py` | Device-shell client: one-shot `HOST [PORT] CMD ...` or interactive `HOST [PORT]`; default port 23 |
-| `tools/target/discover.py` | LAN scanner for the device shell port (default 23); `--host` works cross-subnet when routed |
-| `tools/target/net.py` | Shell client for the device shell: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
-| `tools/target/render_config.py` | Resolve `system-config.json`: Wi-Fi overrides + OTA source from `update-source.json` |
-| `tools/target/provision.py` | Full blank/corrupt-board provisioning engine (UF2 flash, LFS format, tree upload, passive boot/DHCP capture, final reset) |
-| `tools/build/assemble.py` | Assemble the `device/` A/B tree |
+| `provision.py` | Full blank/corrupt-board provisioning engine (UF2 flash, LFS format, tree upload, passive boot/DHCP capture, final reset) |
+| `capture_boot.py` | Capture serial output across a board reset (DTR/RTS toggle) to inspect the reset cause / crash |
+| `device.py` | USB CLI: `state`, `log`, `monitor`, `files`, `selftest` (app hook), `probe` (app hook), `exec`, `reset` |
+| `discover.py` | LAN scanner for the device shell port (default 23); `--host` works cross-subnet when routed |
+| `telnet.py` | Device-shell client: one-shot `HOST [PORT] CMD ...` or interactive `HOST [PORT]`; default port 23 |
+| `net.py` | Shell client for the device shell: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
+| `render_config.py` | Resolve `system-config.json`: Wi-Fi overrides + OTA source from `update-source.json` |
+| `serve_update.py` | `[PORT]` → serve `build/` for direct-server OTA (`firmware_server.py`) |
+| `deploy.py` | End-to-end: bump version → build → serve → OTA over Wi-Fi → wait for A/B promotion → self-test (`--usb` legacy path available) |
+| `capture_baseline.py` | Run the hardware reliability baseline on a connected board; saves `hardware-baseline.json` (executes `src/device_baseline.py` on-device) |
 
-**Build, release, and deploy**
-
-| Tool | Purpose |
-| --- | --- |
-| `tools/build/setup_build_env.py` | Create/refresh the project `.venv` from `requirements-dev.txt` |
-| `tools/build/build_firmware.py` | `[VERSION] [MODEL]` → assemble + compile + package the OTA update into `build/` |
-| `tools/target/serve_update.py` | `[PORT]` → serve `build/` for direct-server OTA (`firmware_server.py`) |
-| `tools/micropy-wiring/release_github.py` | `MAJOR.MINOR.PATCH` → tag + push; the project's CI builds the GitHub release |
-| `tools/target/deploy.py` | End-to-end: bump version → build → serve → OTA over Wi-Fi → wait for A/B promotion → self-test (`--usb` legacy path available) |
-
-**Framework maintenance and debug**
+**`tools/build/` — host-side toolchain**
 
 | Tool | Purpose |
 | --- | --- |
-| `tools/micropy-wiring/update_framework.py` | Update the framework's own submodule checkout in the consuming project (fetch + ff-merge); the project then commits the pointer |
-| `tools/target/capture_boot.py` | Capture serial output across a board reset (DTR/RTS toggle) to inspect the reset cause / crash |
+| `setup_build_env.py` | Create/refresh the project `.venv` from `requirements-dev.txt` |
+| `assemble.py` | Assemble the `device/` A/B tree |
+| `build_firmware.py` | `[VERSION] [MODEL]` → assemble + compile + package the OTA update into `build/` |
+| `select_stubs.py` | `[pico-w\|pico2-w]` → pick the IntelliSense MicroPython stub profile |
+
+**`tools/micropy-wiring/` — framework and project management**
+
+| Tool | Purpose |
+| --- | --- |
+| `init_project.py` | Scaffold a new project from the framework (app skeleton, templates, CI) — non-destructive |
+| `update_framework.py` | Update the framework's own submodule checkout in the consuming project (fetch + ff-merge); the project then commits the pointer |
+| `release_github.py` | `MAJOR.MINOR.PATCH` → tag + push; the project's CI builds the GitHub release |
 
 `mpremote` and `pyserial` come from `requirements-dev.txt` (installed by
 `tools/build/setup_build_env.py`). The provisioning engine expects the app to log a
