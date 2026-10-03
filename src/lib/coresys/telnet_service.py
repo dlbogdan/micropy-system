@@ -271,6 +271,15 @@ class TelnetService:
                 out = "error: %s" % e
                 logger.error("Telnet command '%s' failed: %s" % (name, e),
                              log_to_file=True)
+        # App handlers may be coroutines (async I/O that must not block the
+        # board); await them when they are.
+        if hasattr(out, "__await__"):
+            try:
+                out = await out
+            except Exception as e:
+                out = "error: %s" % e
+                logger.error("Telnet command '%s' failed: %s" % (name, e),
+                             log_to_file=True)
         if out is None:
             out = ""
         writer.write((str(out) + "\n" + END_MARKER + "\n").encode())

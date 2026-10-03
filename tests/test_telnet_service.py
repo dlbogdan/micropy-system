@@ -101,6 +101,42 @@ class TelnetServiceTests(unittest.TestCase):
         service = module.TelnetService(allow_repl=True)
         self.assertIn("repl", service._help(""))
 
+    def test_async_handler_is_awaited(self):
+        # App handlers may be coroutines (async I/O that must not block the
+        # board); the service must await them and return the result.
+        module = load_telnet_service()
+        service = module.TelnetService()
+
+        async def async_handler(_arg=""):
+            await asyncio.sleep(0)
+            return "async-result:42"
+
+        service.add("mycmd", async_handler, "an async command")
+
+        reader = _Reader([b"mycmd\n"])
+        writer = _Writer()
+        asyncio.run(service._handle(reader, writer))
+
+        self.assertIn("async-result:42", writer.output.decode())
+
+    def test_async_handler_error_is_reported(self):
+        # A failing async handler reports the error instead of dropping the
+        # connection.
+        module = load_telnet_service()
+        service = module.TelnetService()
+
+        async def failing_handler(_arg=""):
+            await asyncio.sleep(0)
+            raise RuntimeError("boom")
+
+        service.add("mycmd", failing_handler, "an async command")
+
+        reader = _Reader([b"mycmd\n"])
+        writer = _Writer()
+        asyncio.run(service._handle(reader, writer))
+
+        self.assertIn("error: boom", writer.output.decode())
+
     def test_auth_token_gates_all_commands(self):
         module = load_telnet_service()
         service = module.TelnetService(auth_token="secret")
