@@ -225,15 +225,22 @@ class TelnetService:
     async def _close(writer):
         """Release the socket.
 
-        uasyncio's ``writer.close()`` is a coroutine that must be awaited; a
-        synchronous ``close()`` (host test fakes) returns ``None``. Without
-        the await the socket is never released and the Pico's small socket
-        pool leaks until new connections time out.
+        uasyncio builds differ: ``close()`` may be a coroutine (await it)
+        while the transport is finalized by ``wait_closed()``; host test
+        fakes are plain synchronous calls. Cover both so the socket is
+        always released -- otherwise the Pico's small socket pool leaks
+        until new connections time out.
         """
         try:
             close = writer.close()
             if close is not None and hasattr(close, "__await__"):
                 await close
+        except Exception:
+            pass
+        try:
+            wait = writer.wait_closed()
+            if wait is not None and hasattr(wait, "__await__"):
+                await wait
         except Exception:
             pass
 
