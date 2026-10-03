@@ -4,7 +4,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE_PATH = ROOT / "tools" / "telnet.py"
+MODULE_PATH = ROOT / "tools" / "target" / "telnet.py"
 
 
 def load_client():

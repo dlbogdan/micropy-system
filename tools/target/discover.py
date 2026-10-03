@@ -6,7 +6,7 @@ concurrently and reports any host whose shell (telnet-style line command
 server, port 23) answers a `status` command like a micropy-system device.
 Use --host to probe a single address directly (works cross-subnet when routed).
 
-Usage:  tools/discover.py [port]  |  --host 10.9.30.76  |  --subnet 10.9.30
+Usage:  tools/target/discover.py [port]  |  --host 10.9.30.76  |  --subnet 10.9.30
 """
 
 import argparse
@@ -86,7 +86,7 @@ def main():
         print("Probing %s on port %s..." % (args.host, port))
         if probe(port, args.marker, args.host):
             print("Found device: %s" % args.host)
-            print("shell %s:%s (e.g. tools/telnet.py %s %s status)"
+            print("shell %s:%s (e.g. tools/target/telnet.py %s %s status)"
                   % (args.host, port, args.host, port))
             return
         print("No device at %s." % args.host)
@@ -106,7 +106,7 @@ def main():
         for hit in ex.map(lambda h: probe(port, args.marker, h), hosts):
             if hit:
                 print("Found device: %s" % hit)
-                print("shell %s:%s (e.g. tools/telnet.py %s %s status)"
+                print("shell %s:%s (e.g. tools/target/telnet.py %s %s status)"
                       % (hit, port, hit, port))
                 return
     print("No device found. Is it powered on and connected to the same network?")

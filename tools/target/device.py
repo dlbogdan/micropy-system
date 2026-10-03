@@ -14,18 +14,18 @@ Application hooks
 
 Examples
 --------
-    tools/device.py state                 # version, OTA state, system config
-    tools/device.py log --lines 40        # tail the on-device /log.txt
-    tools/device.py monitor --seconds 30  # passively watch the console (no reset)
-    tools/device.py selftest              # run the app self-test on-device
-    tools/device.py probe --seconds 15    # run app main() for N s, report result
-    tools/device.py exec "print(1+1)"     # run arbitrary MicroPython on the device
-    tools/device.py reset                 # soft-reset the board
-    tools/device.py files --path /apps/a  # list a directory
+    tools/target/device.py state                 # version, OTA state, system config
+    tools/target/device.py log --lines 40        # tail the on-device /log.txt
+    tools/target/device.py monitor --seconds 30  # passively watch the console (no reset)
+    tools/target/device.py selftest              # run the app self-test on-device
+    tools/target/device.py probe --seconds 15    # run app main() for N s, report result
+    tools/target/device.py exec "print(1+1)"     # run arbitrary MicroPython on the device
+    tools/target/device.py reset                 # soft-reset the board
+    tools/target/device.py files --path /apps/a  # list a directory
 
 The serial port is auto-detected on macOS and Linux; override with --port.
 mpremote and pyserial are expected in the project's .venv (created by
-tools/setup_build_env.py from the framework's requirements-dev.txt).
+tools/build/setup_build_env.py from the framework's requirements-dev.txt).
 """
 
 import argparse
@@ -34,6 +34,8 @@ import shutil
 import subprocess
 import sys
 import time
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tooling import find_serial_port, resolve_app_root
 

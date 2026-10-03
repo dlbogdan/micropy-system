@@ -5,7 +5,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-TOOLS = ROOT / "tools"
+TOOLS = ROOT / "tools" / "target"
 MODULE_PATH = TOOLS / "deploy.py"
 
 

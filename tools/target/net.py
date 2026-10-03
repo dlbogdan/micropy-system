@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tooling import framework_root, project_python, resolve_app_root
 
 
@@ -42,11 +44,11 @@ def main(argv=None):
     python = project_python(app_root, required=False)
     shell_port = int(os.environ.get("OTC_SHELL_PORT",
                                     os.environ.get("SHELL_PORT", "23")))
-    telnet = root / "tools" / "telnet.py"
+    telnet = root / "tools" / "target" / "telnet.py"
 
     if args.command == "discover":
         port = args.arguments[0] if args.arguments else shell_port
-        exec_python(python, root / "tools" / "discover.py", port)
+        exec_python(python, root / "tools" / "target" / "discover.py", port)
     if args.command == "log":
         first = args.arguments[0] if args.arguments else None
         if first and first.isdigit():

@@ -20,7 +20,7 @@ import sys
 
 
 def framework_root():
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def resolve_app_root(cli_value=None):
@@ -61,7 +61,7 @@ def render(base, out, ssid="", passwd="", name="", update_source=None):
         w["PASS"] = ""
 
     # Populate the FIRMWARE (OTA) section from the update-source file:
-    # mode "local"   -> DIRECT_BASE_URL (update server, e.g. tools/serve_update.py)
+    # mode "local"   -> DIRECT_BASE_URL (update server, e.g. tools/target/serve_update.py)
     # mode "github"  -> GITHUB_REPO (+ optional token) for release-based OTA
     fw = cfg.setdefault("FIRMWARE", {})
     us = None

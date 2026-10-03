@@ -6,6 +6,10 @@ import json
 from pathlib import Path
 import subprocess
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tooling import framework_root
 
 
@@ -93,7 +97,7 @@ jobs:
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
       - name: Assemble device tree
-        run: python "__SUBMODULE__/tools/assemble.py"
+        run: python "__SUBMODULE__/tools/build/assemble.py"
       - name: Build firmware
         run: >-
           python "__SUBMODULE__/local_builder.py"
@@ -121,20 +125,20 @@ This application uses `micropy-system` as a pinned Git submodule.
 
 ```sh
 # One-time local toolchain setup
-__SUBMODULE__/tools/setup_build_env.py
+__SUBMODULE__/tools/build/setup_build_env.py
 
 # Build, serve, deploy, and maintain
-__SUBMODULE__/tools/build_firmware.py
-__SUBMODULE__/tools/serve_update.py
-__SUBMODULE__/tools/deploy.py
-__SUBMODULE__/tools/update_framework.py
+__SUBMODULE__/tools/build/build_firmware.py
+__SUBMODULE__/tools/target/serve_update.py
+__SUBMODULE__/tools/target/deploy.py
+__SUBMODULE__/tools/micropy-wiring/update_framework.py
 
 # Trigger the GitHub release workflow
-__SUBMODULE__/tools/release_github.py 1.0.1
+__SUBMODULE__/tools/micropy-wiring/release_github.py 1.0.1
 ```
 
 For MicroPico deployment, copy `system-config.example.json` to the ignored
-`system-config.json`, edit it, run `python3 __SUBMODULE__/tools/assemble.py`,
+`system-config.json`, edit it, run `python3 __SUBMODULE__/tools/build/assemble.py`,
 and configure MicroPico's sync folder as `device`.
 
 The initializer creates a minimal `.vscode/settings.json` and preserves any
@@ -206,7 +210,7 @@ def initialize(project):
 
     print("\nProject initialized at %s" % project)
     print("Next: configure system-config.json, then run:")
-    print("  python3 %s/tools/assemble.py" % submodule)
+    print("  python3 %s/tools/build/assemble.py" % submodule)
 
 
 def main(argv=None):

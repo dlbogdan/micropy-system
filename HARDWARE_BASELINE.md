@@ -42,8 +42,8 @@ Verify the tools with:
 Install both editor-stub profiles, then select the board being edited/tested:
 
 ```sh
-.venv/bin/python tools/select_stubs.py pico-w
-.venv/bin/python tools/select_stubs.py pico2-w
+.venv/bin/python tools/build/select_stubs.py pico-w
+.venv/bin/python tools/build/select_stubs.py pico2-w
 ```
 
 Each command installs its profile when needed and points the ignored
@@ -55,20 +55,20 @@ Pylance does not refresh automatically.
 Connect the Pico W over USB and run:
 
 ```sh
-.venv/bin/python tools/capture_baseline.py
+.venv/bin/python tools/target/capture_baseline.py
 ```
 
 If automatic serial discovery fails:
 
 ```sh
-.venv/bin/python tools/capture_baseline.py --port /dev/cu.usbmodem1101
+.venv/bin/python tools/target/capture_baseline.py --port /dev/cu.usbmodem1101
 ```
 
-The command executes `tools/device_baseline.py` from RAM through `mpremote`; it does not install that script on the board. Rename tests are confined to `/__baseline_test`, which is removed after each case. The resulting `hardware-baseline.json` is local machine/device evidence and is intentionally ignored by Git.
+The command executes `src/device_baseline.py` from RAM through `mpremote`; it does not install that script on the board. Rename tests are confined to `/__baseline_test`, which is removed after each case. The resulting `hardware-baseline.json` is local machine/device evidence and is intentionally ignored by Git.
 
 ### Using the VS Code MicroPico extension
 
-MicroPico can run `tools/device_baseline.py` on a connected Pico through the
+MicroPico can run `src/device_baseline.py` on a connected Pico through the
 **MicroPico: Run current file on Pico** command. Copy the JSON printed between
 the `MICROPY_SYSTEM_BASELINE_BEGIN` and `MICROPY_SYSTEM_BASELINE_END` markers
 into `hardware-baseline.json`, then format it as JSON.

@@ -15,6 +15,8 @@ import time
 import urllib.error
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tooling import framework_root, project_python, resolve_app_root
 
 
@@ -61,7 +63,7 @@ def telnet(python, root, ip_address, port, command, timeout=10):
     environment["OTC_CMD_TIMEOUT"] = str(timeout)
     try:
         result = subprocess.run(
-            [str(python), str(root / "tools" / "telnet.py"), ip_address,
+            [str(python), str(root / "tools" / "target" / "telnet.py"), ip_address,
              str(port), *command], capture_output=True, text=True,
             timeout=timeout + 2, env=environment, check=False)
     except (OSError, subprocess.SubprocessError):
@@ -119,7 +121,7 @@ def wait_for_usb_promotion(root, version, timeout=240):
     while time.monotonic() - started < timeout:
         elapsed = int(time.monotonic() - started)
         result = subprocess.run(
-            [str(root / "tools" / "device.py"), "exec", code],
+            [str(root / "tools" / "target" / "device.py"), "exec", code],
             capture_output=True, text=True, check=False)
         lines = (result.stdout + result.stderr).splitlines()
         last = lines[-1].strip() if lines else ""
@@ -152,7 +154,7 @@ def resolve_device_ip(args, python, root, app_root):
             print("    using remembered IP %s" % candidate)
             return candidate
     result = subprocess.run(
-        [str(python), str(root / "tools" / "discover.py"),
+        [str(python), str(root / "tools" / "target" / "discover.py"),
          str(args.shell_port)], capture_output=True, text=True, check=False)
     match = re.search(r"Found device: ([0-9.]+)", result.stdout)
     return match.group(1) if match else None
@@ -180,7 +182,7 @@ def deploy(args):
     started = time.monotonic()
     with build_log.open("w") as output:
         result = subprocess.run(
-            [str(root / "tools" / "build_firmware.py"), "--app-root",
+            [str(root / "tools" / "build" / "build_firmware.py"), "--app-root",
              str(app_root), version], stdout=output, stderr=subprocess.STDOUT,
             check=False)
     if result.returncode != 0:
@@ -193,7 +195,7 @@ def deploy(args):
         print("==> Starting update server on :%d" % args.port)
         output = serve_log.open("a")
         subprocess.Popen(
-            [str(root / "tools" / "serve_update.py"), str(args.port),
+            [str(root / "tools" / "target" / "serve_update.py"), str(args.port),
              "--app-root", str(app_root)], stdout=output,
             stderr=subprocess.STDOUT, start_new_session=True)
         for _ in range(30):
@@ -207,15 +209,15 @@ def deploy(args):
 
     if args.usb:
         print("==> Resetting board via USB (triggers OTA check)")
-        subprocess.run([str(root / "tools" / "device.py"), "reset"],
+        subprocess.run([str(root / "tools" / "target" / "device.py"), "reset"],
                        check=False)
         print("==> Waiting for OTA install + slot promotion...")
         active = wait_for_usb_promotion(root, version)
         print("==> Promoted: version=%s active_slot=%s" % (version, active))
         print("==> Running on-device self-test (USB)")
-        run([root / "tools" / "device.py", "selftest"])
+        run([root / "tools" / "target" / "device.py", "selftest"])
         print("==> Restarting application after USB self-test")
-        subprocess.run([str(root / "tools" / "device.py"), "reset"],
+        subprocess.run([str(root / "tools" / "target" / "device.py"), "reset"],
                        check=False)
         print("==> DEPLOY OK: %s is active, tested, and restarting." % version)
         return 0

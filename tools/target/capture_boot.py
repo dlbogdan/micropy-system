@@ -6,6 +6,9 @@ import sys
 import threading
 import time
 
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tooling import find_serial_port
 
 
@@ -21,7 +24,7 @@ def main(argv=None):
     try:
         import serial
     except ImportError:
-        raise SystemExit("pyserial is missing; run tools/setup_build_env.py")
+        raise SystemExit("pyserial is missing; run tools/build/setup_build_env.py")
     port = find_serial_port(args.port)
     if not port:
         raise SystemExit(

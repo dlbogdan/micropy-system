@@ -10,8 +10,8 @@ import sys
 
 REPORT_START = "=== MICROPY_SYSTEM_BASELINE_BEGIN ==="
 REPORT_END = "=== MICROPY_SYSTEM_BASELINE_END ==="
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DEVICE_SCRIPT = PROJECT_ROOT / "tools" / "device_baseline.py"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+DEVICE_SCRIPT = PROJECT_ROOT / "src" / "device_baseline.py"
 DEFAULT_OUTPUT = PROJECT_ROOT / "hardware-baseline.json"
 
 

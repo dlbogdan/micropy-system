@@ -20,6 +20,8 @@ import tempfile
 import time
 import urllib.request
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tooling import (eject_volume, find_or_mount_boot_volume, find_serial_port,
                      framework_root, project_executable, project_python,
                      resolve_app_root)
@@ -168,7 +170,7 @@ def capture_boot(port, expect_wifi, marker, timeout=90):
 def shell_status(python, root, ip_address, port, timeout=10):
     try:
         result = subprocess.run(
-            [str(python), str(root / "tools" / "telnet.py"), ip_address,
+            [str(python), str(root / "tools" / "target" / "telnet.py"), ip_address,
              str(port), "status"], capture_output=True, text=True,
             timeout=timeout, check=False)
         if result.returncode != 0:
@@ -200,14 +202,14 @@ def provision(args):
     mpremote_path = project_executable(app_root, "mpremote")
     if not mpremote_path.is_file():
         raise FileNotFoundError(
-            "mpremote not found in .venv; run tools/setup_build_env.py")
+            "mpremote not found in .venv; run tools/build/setup_build_env.py")
 
     config_source = choose_config(app_root, args.base)
     if config_source.name == "system-config.example.json":
         print("==> No local system-config.json -- using the example template")
 
     print("==> Assembling a fresh device tree")
-    run([python, root / "tools" / "assemble.py", "--app-root", app_root],
+    run([python, root / "tools" / "build" / "assemble.py", "--app-root", app_root],
         stdout=subprocess.DEVNULL)
     device = app_root / "device"
     if not (device / "boot.py").is_file() or not (device / "main.py").is_file():
@@ -278,7 +280,7 @@ print('LFS formatted')"""
         if not update_source.is_absolute():
             update_source = app_root / update_source
         print("==> Resolving system-config.json")
-        run([python, root / "tools" / "render_config.py",
+        run([python, root / "tools" / "target" / "render_config.py",
              "--out", config_output, "--base", config_source,
              "--ssid", args.ssid, "--pass", args.password,
              "--name", args.name, "--update-source", update_source])

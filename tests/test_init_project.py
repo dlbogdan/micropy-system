@@ -6,8 +6,8 @@ import unittest
 
 
 FRAMEWORK_ROOT = Path(__file__).resolve().parents[1]
-INITIALIZER = FRAMEWORK_ROOT / "tools" / "init_project.py"
-ASSEMBLER = FRAMEWORK_ROOT / "tools" / "assemble.py"
+INITIALIZER = FRAMEWORK_ROOT / "tools" / "micropy-wiring" / "init_project.py"
+ASSEMBLER = FRAMEWORK_ROOT / "tools" / "build" / "assemble.py"
 
 
 class InitProjectIntegrationTests(unittest.TestCase):
@@ -33,7 +33,7 @@ class InitProjectIntegrationTests(unittest.TestCase):
 
             self.assertFalse((project / "tools").exists())
             self.assertIn(
-                'run: python "vendor/micropy-system/tools/assemble.py"',
+                'run: python "vendor/micropy-system/tools/build/assemble.py"',
                 (project / ".github" / "workflows" / "release-firmware.yml").read_text(),
             )
             self.assertIn(

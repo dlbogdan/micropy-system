@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Client for a micropy-system device shell (telnet-style lines on port 23).
 
-One-shot:    tools/telnet.py HOST [PORT] COMMAND [ARGS...]
-    tools/telnet.py 10.9.30.76 status
-    tools/telnet.py 10.9.30.76 log 40
-    tools/telnet.py 10.9.30.76 selftest
-    tools/telnet.py 10.9.30.76 reboot
-Interactive: tools/telnet.py HOST [PORT]
+One-shot:    tools/target/telnet.py HOST [PORT] COMMAND [ARGS...]
+    tools/target/telnet.py 10.9.30.76 status
+    tools/target/telnet.py 10.9.30.76 log 40
+    tools/target/telnet.py 10.9.30.76 selftest
+    tools/target/telnet.py 10.9.30.76 reboot
+Interactive: tools/target/telnet.py HOST [PORT]
     prints the banner, then sends each local line as a command; 'repl' (when enabled)
     drops into the device's persistent Python loop; 'exit'/'quit' close.
 

@@ -8,6 +8,8 @@ import re
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tooling import framework_root, project_python, resolve_app_root
 
 
@@ -40,7 +42,7 @@ def main(argv=None):
 
     print("==> Assembling device tree")
     subprocess.run(
-        [str(python), str(root / "tools" / "assemble.py"),
+        [str(python), str(root / "tools" / "build" / "assemble.py"),
          "--app-root", str(app_root)], check=True)
     print("==> Building firmware %s for %s" % (version, args.model))
     environment = os.environ.copy()
