@@ -41,6 +41,15 @@ class ProvisionToolTests(unittest.TestCase):
             example.write_text("{}")
             self.assertEqual(self.provision.choose_config(root), local.resolve())
 
+    def test_choose_app_config_optional(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.assertIsNone(self.provision.choose_app_config(root))
+            local = root / "app-config.json"
+            local.write_text("{}")
+            self.assertEqual(self.provision.choose_app_config(root),
+                             local.resolve())
+
     def test_stage_filters_host_files_and_marker(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

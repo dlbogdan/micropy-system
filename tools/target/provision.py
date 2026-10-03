@@ -78,6 +78,18 @@ def choose_config(app_root, explicit=None):
         "system-config.example.json)")
 
 
+def choose_app_config(app_root):
+    """Return the local per-device app config, or None when absent.
+
+    Unlike the system config this is optional: without it the board
+    self-seeds the app's own defaults on first boot (the app's ``DEFAULTS``).
+    When present it is uploaded verbatim to ``/app-config.json``; the board
+    still seeds any keys the file omits.
+    """
+    path = Path(app_root) / "app-config.json"
+    return path.resolve() if path.is_file() else None
+
+
 def download_uf2(path, url):
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.is_file() and path.stat().st_size >= 200000:
@@ -287,6 +299,15 @@ print('LFS formatted')"""
         print("==> Uploading system-config.json")
         mpremote(mpremote_path, port, "cp", "-f", config_output,
                  ":/system-config.json")
+
+        app_config = choose_app_config(app_root)
+        if app_config:
+            print("==> Uploading app-config.json (local per-device values)")
+            mpremote(mpremote_path, port, "cp", "-f", app_config,
+                     ":/app-config.json")
+        else:
+            print("==> No local app-config.json -- the board self-seeds its "
+                  "defaults (app/config.py) on first boot")
 
         version_file = app_root / "app" / "version.txt"
         if version_file.is_file():
