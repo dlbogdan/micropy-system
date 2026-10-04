@@ -92,8 +92,10 @@ def suite_files(app_root):
              (DEVICE_DIR, framework / "src" / "autotests" / "unittest.py")]
     suites_dir = Path(app_root) / "autotests"
     if suites_dir.is_dir():
+        # test_*.py (collected) + helper modules they import (e.g. the
+        # shared live-CCU3 session): push every top-level .py in the dir.
         files.extend((DEVICE_DIR, path)
-                     for path in sorted(suites_dir.glob("test_*.py")))
+                     for path in sorted(suites_dir.glob("*.py")))
     return files
 
 
