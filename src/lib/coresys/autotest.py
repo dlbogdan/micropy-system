@@ -262,7 +262,7 @@ class AutoTest(object):
             return ("ERROR", "\n".join(_format_exc(exc, self.max_tb_lines)), 0)
         timeout = float(getattr(instance, "timeout_s", 0)) or self.test_timeout_s
         try:
-            instance.setUp()
+            await self._maybe_await_hook(instance, "setUp", timeout)
             result = getattr(instance, meth_name)()
             if _is_coroutine(result):
                 result = await asyncio.wait_for(result, timeout)
@@ -277,12 +277,18 @@ class AutoTest(object):
             detail = "\n".join(_format_exc(exc, self.max_tb_lines))
         finally:
             try:
-                instance.tearDown()
+                await self._maybe_await_hook(instance, "tearDown", timeout)
             except Exception as exc:
                 if outcome == "PASS":
                     outcome, detail = "ERROR", "tearDown: %s" % exc
         duration = _elapsed_ms(started, _now_ms())
         return outcome, detail, duration
+
+    async def _maybe_await_hook(self, instance, name, timeout):
+        """Run setUp/tearDown; an async-def hook is awaited like a test."""
+        result = getattr(instance, name)()
+        if _is_coroutine(result):
+            await asyncio.wait_for(result, timeout)
 
     # ------------------------------------------------------------------ misc
     def _info_log(self, message):

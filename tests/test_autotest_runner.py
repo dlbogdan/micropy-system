@@ -102,11 +102,37 @@ class TestPatient(unittest.TestCase):
         await asyncio.sleep(0.2)
 '''
 
+SUITE_ASYNC_SETUP = '''
+import asyncio
+import unittest
+
+
+class TestAsyncHook(unittest.TestCase):
+    async def setUp(self):
+        await asyncio.sleep(0)
+        self.ready = True
+
+    async def test_setup_ran(self):
+        self.assertTrue(self.ready)
+
+    async def tearDown(self):
+        await asyncio.sleep(0)
+
+
+class TestAsyncSetupFails(unittest.TestCase):
+    async def setUp(self):
+        raise RuntimeError("setup exploded")
+
+    def test_never_runs(self):
+        self.fail("must not run")
+'''
+
 SUITES = {
     "test_alpha.py": SUITE_OK,
     "test_fails.py": SUITE_FAILS,
     "test_broken.py": SUITE_BROKEN_IMPORT,
     "test_timeout_override.py": SUITE_TIMEOUT_OVERRIDE,
+    "test_async_setup.py": SUITE_ASYNC_SETUP,
 }
 
 
@@ -172,6 +198,17 @@ class RunnerTests(unittest.TestCase):
         text = self._run(self._runner())
         self.assertIn("PASS  test_timeout_override.TestPatient"
                       ".test_within_override", text)
+
+    def test_async_setup_teardown_hooks_are_awaited(self):
+        # I/O suites need a bounded, awaited setUp (e.g. wait for Wi-Fi);
+        # an async-def hook must run like a test, and its failure must be
+        # attributed to the test instead of silently skipping it.
+        self._write("test_async_setup.py")
+        text = self._run(self._runner())
+        self.assertIn("PASS  test_async_setup.TestAsyncHook.test_setup_ran",
+                      text)
+        self.assertIn("ERROR test_async_setup.TestAsyncSetupFails"
+                      ".test_never_runs", text)
 
     def test_reentrancy_guard(self):
         runner = self._runner()
