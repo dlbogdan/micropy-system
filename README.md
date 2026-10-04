@@ -477,6 +477,7 @@ Tools are grouped by function, mirroring the directory layout (`tools/tooling.py
 | `device.py` | USB CLI: `state`, `log`, `monitor`, `files`, `selftest` (app hook), `probe` (app hook), `exec`, `reset` |
 | `discover.py` | LAN scanner for the device shell port (default 23); `--host` works cross-subnet when routed |
 | `telnet.py` | Device-shell client: one-shot `HOST [PORT] CMD ...` or interactive `HOST [PORT]`; default port 23 |
+| `autotest.py` | Device test suites: `push` unittest-style suites from `<app>/autotests/` + the framework runner/shim to the board (USB), `run [PATTERN]` remotely over the shell, `sync` = both; exits non-zero on failure |
 | `net.py` | Shell client for the device shell: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
 | `render_config.py` | Resolve `system-config.json`: Wi-Fi overrides + OTA source from `update-source.json` |
 | `serve_update.py` | `[PORT]` → serve `build/` for direct-server OTA (`firmware_server.py`) |

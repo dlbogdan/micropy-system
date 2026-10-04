@@ -272,8 +272,14 @@ class TelnetService:
                 logger.error("Telnet command '%s' failed: %s" % (name, e),
                              log_to_file=True)
         # App handlers may be coroutines (async I/O that must not block the
-        # board); await them when they are.
-        if hasattr(out, "__await__"):
+        # board); await them when they are. NB: on MicroPython a coroutine is
+        # a plain generator WITHOUT __await__ (CPython native coroutines have
+        # it), so duck-type on the generator protocol as well -- verified
+        # on-device: an `async def` app handler returned a bare
+        # "<generator object>" string unless both checks are present.
+        if hasattr(out, "__await__") or (hasattr(out, "send")
+                                         and hasattr(out, "throw")
+                                         and hasattr(out, "__next__")):
             try:
                 out = await out
             except Exception as e:

@@ -119,6 +119,49 @@ class TelnetServiceTests(unittest.TestCase):
 
         self.assertIn("async-result:42", writer.output.decode())
 
+    def test_micropython_style_coroutine_is_awaited(self):
+        # MicroPython coroutines are plain generators WITHOUT __await__
+        # (verified on-device: an async handler returned a bare
+        # '<generator object>' string). Simulate that shape on the host.
+        module = load_telnet_service()
+        service = module.TelnetService()
+
+        def mp_coroutine(_arg=""):
+            yield  # a generator: no native-coroutine attributes
+            return "mp-async:7"
+
+        class NoAwait:
+            """Device-shape stand-in: exposes the generator protocol.
+
+            MicroPython awaits such objects natively; on the host CPython
+            still needs __await__ to drive the loop, so return the generator
+            (the behavior under test is the DETECTION, not CPython's await).
+            """
+
+            def __init__(self, gen):
+                self._gen = gen
+
+            def send(self, value):
+                return self._gen.send(value)
+
+            def throw(self, *args):
+                return self._gen.throw(*args)
+
+            def __next__(self):
+                return next(self._gen)
+
+            def __await__(self):
+                return self._gen
+
+        def handler(arg=""):
+            return NoAwait(mp_coroutine(arg))
+
+        service.add("mpcmd", handler, "mp-style async command")
+        reader = _Reader([b"mpcmd\n"])
+        writer = _Writer()
+        asyncio.run(service._handle(reader, writer))
+        self.assertIn("mp-async:7", writer.output.decode())
+
     def test_async_handler_error_is_reported(self):
         # A failing async handler reports the error instead of dropping the
         # connection.
