@@ -92,12 +92,48 @@ def _format_exc(exc, max_lines):
     return lines[-max_lines:] if max_lines else lines
 
 
+def _isdir(path):
+    """Directory probe portable to builds WITHOUT os.path (verified on the
+    1.29.0 rp2 build: os.path attribute is missing entirely; os.stat is
+    always present and S_IFDIR is 0o40000)."""
+    try:
+        return bool(os.stat(path)[0] & 0o40000)
+    except OSError:
+        return False
+
+
+def resolve_directory(preferred=None):
+    """Where suites live, in priority order.
+
+    1. An explicit directory (host tool / embedding app).
+    2. ``<slot>/autotests`` -- suites packaged by a --debug OTA build:
+       integrity-checked and versioned with the RUNNING firmware (the
+       launcher put the slot on sys.path; a later release OTA drops the
+       directory away). This authority also makes stale USB-push debris
+       under /autotests harmless.
+    3. ``/autotests`` -- the USB push target (bench boards without a
+       --debug OTA).
+    4. The default (so 'test list' reports a useful missing-directory path).
+    """
+    if preferred:
+        return preferred
+    for entry in sys.path:
+        if not isinstance(entry, str) or not entry:
+            continue
+        candidate = entry.rstrip("/") + "/autotests"
+        if _isdir(candidate):
+            return candidate
+    if _isdir("/autotests"):
+        return "/autotests"
+    return "/autotests"
+
+
 class AutoTest(object):
     """Discover + run ``test_*.py`` suites from a device directory."""
 
-    def __init__(self, directory="/autotests", heap_floor=40000,
+    def __init__(self, directory=None, heap_floor=40000,
                  test_timeout_s=60, max_tb_lines=6, log=None, warn=None):
-        self.directory = directory
+        self.directory = resolve_directory(directory)
         self.heap_floor = int(heap_floor)
         self.test_timeout_s = float(test_timeout_s)
         self.max_tb_lines = int(max_tb_lines)
@@ -124,8 +160,8 @@ class AutoTest(object):
             names = sorted(n for n in os.listdir(self.directory)
                            if n.startswith("test_") and n.endswith(".py"))
         except OSError:
-            return "no test directory at %s (push suites with the host tool)" \
-                % self.directory
+            return ("no test directory at %s (push suites over USB, or OTA a "
+                    "--debug build)" % self.directory)
         lines = ["%s: %d modules (heap %d B, floor %d B, timeout %ds)"
                  % (self.directory, len(names), _mem_free(),
                     self.heap_floor, self.test_timeout_s)]
@@ -192,8 +228,8 @@ class AutoTest(object):
             names = sorted(n for n in os.listdir(self.directory)
                            if n.startswith("test_") and n.endswith(".py"))
         except OSError:
-            return "no test directory at %s (push suites with the host tool)" \
-                % self.directory
+            return ("no test directory at %s (push suites over USB, or OTA a "
+                    "--debug build)" % self.directory)
         self._running = True
         started = _now_ms()
         passed = failed = skipped = 0
@@ -304,5 +340,6 @@ def register(shell, runner=None, **kwargs):
     """Register the ``test`` command on a framework TelnetService."""
     runner = runner if runner is not None else AutoTest(**kwargs)
     shell.add("test", runner.handle,
-              "device test suites: list | run [PATTERN]  (/autotests)")
+              "device test suites: list | run [PATTERN]  (%s)"
+              % runner.directory)
     return runner

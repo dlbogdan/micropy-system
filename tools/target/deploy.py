@@ -34,6 +34,11 @@ def parse_args(argv=None):
     parser.add_argument("--shell-port", type=int,
                         default=int(os.environ.get("OTC_SHELL_PORT", "23")))
     parser.add_argument("--ip-file", default=".micropy-device-ip")
+    parser.add_argument(
+        "--debug", action="store_true",
+        help="DEBUG build: OTA the project's autotests/ into the slot so a "
+             "network-deployed board can run them over the shell (no USB)",
+    )
     return parser.parse_args(argv)
 
 
@@ -181,10 +186,12 @@ def deploy(args):
     print("==> Building (log: %s)..." % build_log)
     started = time.monotonic()
     with build_log.open("w") as output:
-        result = subprocess.run(
-            [str(root / "tools" / "build" / "build_firmware.py"), "--app-root",
-             str(app_root), version], stdout=output, stderr=subprocess.STDOUT,
-            check=False)
+        build = [str(root / "tools" / "build" / "build_firmware.py"),
+                 "--app-root", str(app_root), version]
+        if args.debug:
+            build.append("--debug")
+        result = subprocess.run(build, stdout=output,
+                                stderr=subprocess.STDOUT, check=False)
     if result.returncode != 0:
         tail = build_log.read_text(errors="replace").splitlines()[-30:]
         raise RuntimeError("build failed:\n" + "\n".join(tail))

@@ -202,6 +202,39 @@ class BuildVersionTests(unittest.TestCase):
             local_builder.create_tar_archive(str(source), str(archive), str(prepared))
             local_builder.validate_tar_archive(str(archive))
 
+    def test_debug_package_includes_autotests_and_framework_shim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            prepared = root / 'prepared'
+            suites = root / 'autotests'
+            source.mkdir()
+            prepared.mkdir()
+            suites.mkdir()
+            (source / 'main.py').write_text('slot application\n')
+            (source / 'app_mod.py').write_text('VALUE = 1')
+            (prepared / 'app_mod.mpy').write_bytes(b'MPY\x06')
+            (suites / 'test_live.py').write_text('x = 1\n')
+            (suites / 'session_helper.py').write_text('y = 2\n')
+            (suites / 'unittest.py').write_text('project placeholder\n')
+            local_builder.copy_autotests(str(suites), str(prepared))
+            archive = root / 'debug.tar'
+            local_builder.create_tar_archive(
+                str(source), str(archive), str(prepared),
+                install_mode='ab-slot')
+            local_builder.validate_tar_archive(str(archive))
+            with tarfile.open(archive) as release:
+                names = release.getnames()
+                integrity = json.loads(
+                    release.extractfile('integrity.json').read())
+                shim = release.extractfile('autotests/unittest.py').read()
+            self.assertIn('autotests/test_live.py', names)
+            self.assertIn('autotests/session_helper.py', names)
+            self.assertIn('autotests/unittest.py', names)
+            self.assertIn('autotests/test_live.py', integrity)
+            # the framework owns the shim; a project copy is ignored
+            self.assertNotIn(b'placeholder', shim)
+
     def test_ab_slot_archive_renames_main_and_excludes_stable_root(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

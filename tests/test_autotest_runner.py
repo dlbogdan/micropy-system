@@ -252,6 +252,68 @@ class RunnerTests(unittest.TestCase):
         text = asyncio.run(runner._run(""))
         self.assertIn("no test directory", text)
 
+    def test_resolve_directory_explicit_wins(self):
+        self.assertEqual(self.module.resolve_directory("/explicit"),
+                         "/explicit")
+
+    def test_resolve_directory_finds_slot_packaged_suites(self):
+        # --debug OTA: suites live at <slot>/autotests and the launcher put
+        # the slot on sys.path; on hosts /autotests does not exist, so the
+        # sys.path scan must find the slot candidate.
+        import os
+        if os.path.isdir("/autotests"):
+            self.skipTest("/autotests exists on this host")
+        slot = self.dir / "apps_b"
+        (slot / "autotests").mkdir(parents=True)
+        saved = list(sys.path)
+        try:
+            sys.path.insert(0, str(slot))
+            self.assertEqual(self.module.resolve_directory(),
+                             str(slot) + "/autotests")
+        finally:
+            sys.path[:] = saved
+
+    def test_resolve_directory_defaults_when_nothing_found(self):
+        import os
+        if os.path.isdir("/autotests"):
+            self.skipTest("/autotests exists on this host")
+        saved = list(sys.path)
+        try:
+            sys.path[:] = [p for p in sys.path
+                           if not os.path.isdir(str(p).rstrip("/")
+                                                + "/autotests")]
+            self.assertEqual(self.module.resolve_directory(), "/autotests")
+        finally:
+            sys.path[:] = saved
+
+    def test_isdir_probe_needs_no_os_path(self):
+        # The device build has no os.path at all (killed the 1.1.77
+        # candidate); the stat-bit probe must work for dirs, files, and
+        # missing paths.
+        (self.dir / "plain_file.py").write_text("x = 1\n")
+        (self.dir / "adir").mkdir()
+        self.assertTrue(self.module._isdir(str(self.dir / "adir")))
+        self.assertFalse(self.module._isdir(str(self.dir / "plain_file.py")))
+        self.assertFalse(self.module._isdir(str(self.dir / "missing")))
+
+    def test_resolve_directory_slot_wins_over_push_debris(self):
+        # The integrity-checked OTA artifact outranks an unverified stale
+        # /autotests (USB-push debris from an older era must not shadow
+        # the suites that shipped with the running firmware).
+        slot = self.dir / "apps_a"
+        (slot / "autotests").mkdir(parents=True)
+        saved = list(sys.path)
+        real_isdir = self.module._isdir
+        try:
+            sys.path.insert(0, str(slot))
+            self.module._isdir = (
+                lambda p: True if p == "/autotests" else real_isdir(p))
+            self.assertEqual(self.module.resolve_directory(),
+                             str(slot) + "/autotests")
+        finally:
+            self.module._isdir = real_isdir
+            sys.path[:] = saved
+
     def test_shell_dispatch_and_list(self):
         runner = self._runner()
         text = asyncio.run(runner.handle("list"))

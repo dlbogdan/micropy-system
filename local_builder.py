@@ -106,6 +106,36 @@ def prepare_modules(source_dir, temp_dir, module_format='mpy'):
                         print("Error: mpy-cross not found. Make sure it's installed and in your PATH.")
                         raise
 
+def copy_autotests(autotests_dir, temp_dir):
+    """--debug packaging: ship test suites + the unittest shim in the slot.
+
+    Suites land under ``autotests/`` as plain .py sources (debug artifacts:
+    readable, no mpy ABI coupling; the runner imports them by path). The
+    on-device runner discovers ``<slot>/autotests`` through the slot entry
+    already on sys.path, so the tests are versioned with the firmware and
+    disappear on the next release OTA. Mirrors the USB push contract: every
+    top-level .py (suites + helper modules); the unittest shim is
+    framework-owned and always included.
+    """
+    dest = os.path.join(temp_dir, 'autotests')
+    os.makedirs(dest, exist_ok=True)
+    shim = os.path.join(FRAMEWORK_ROOT, 'src', 'autotests', 'unittest.py')
+    if not os.path.isfile(shim):
+        raise ValueError("framework unittest shim missing: %s" % shim)
+    shutil.copy2(shim, os.path.join(dest, 'unittest.py'))
+    copied = ['unittest.py (shim)']
+    for name in sorted(os.listdir(autotests_dir)):
+        if not name.endswith(".py") or name.startswith("_"):
+            continue
+        if name == 'unittest.py':      # the framework owns the shim
+            continue
+        source = os.path.join(autotests_dir, name)
+        if os.path.isfile(source):
+            shutil.copy2(source, os.path.join(dest, name))
+            copied.append(name)
+    print("Packaged autotests (%d files): %s" % (len(copied), ", ".join(copied)))
+
+
 def calculate_file_sha256(file_path):
     """Calculate SHA256 hash for a file."""
     sha256_hash = hashlib.sha256()
@@ -447,6 +477,11 @@ def main(argv=None):
         '--install-mode', choices=['ab-slot'], default='ab-slot',
         help='Build an application-only A/B slot image',
     )
+    parser.add_argument(
+        '--with-autotests', metavar='DIR', default=None,
+        help='DEBUG build: package DIR (test suites + helpers) into the slot '
+             'under autotests/, plus the framework unittest shim',
+    )
     
     args = parser.parse_args(argv)
     source_dir = os.path.abspath(args.source_dir)
@@ -480,6 +515,12 @@ def main(argv=None):
         write_framework_build(temp_dir, framework_build, framework_build_date)
         # Step 1: Prepare modules in the selected, non-ambiguous format.
         prepare_modules(source_dir, temp_dir, args.module_format)
+        if args.with_autotests:
+            autotests = os.path.abspath(args.with_autotests)
+            if not os.path.isdir(autotests):
+                parser.error("autotests directory does not exist: %s"
+                             % autotests)
+            copy_autotests(autotests, temp_dir)
         
         # Step 2: Create temporary tar archive
         temp_tar = os.path.join(output_dir, 'temp_firmware.tar')
