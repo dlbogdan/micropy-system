@@ -21,7 +21,7 @@ Safety rails (this runs inside a live device):
 * failures are WARN (file-logged, per the flash-wear policy), passes are not.
 
 Shell commands (registered by ``register``):
-    test list              discovered modules/cases + current heap
+    test                   discovered modules/cases + current heap
     test run [PATTERN]     run everything (or the subset PATTERN matches)
 """
 
@@ -113,7 +113,7 @@ def resolve_directory(preferred=None):
        under /autotests harmless.
     3. ``/autotests`` -- the USB push target (bench boards without a
        --debug OTA).
-    4. The default (so 'test list' reports a useful missing-directory path).
+    4. The default (so a bare 'test' reports a useful missing-directory path).
     """
     if preferred:
         return preferred
@@ -171,13 +171,13 @@ class AutoTest(object):
         # instead of one bulk reply minutes later. Without it (older
         # service on the board) the run buffers exactly as before.
         parts = args.split()
-        command = parts[0].lower() if parts else "run"
-        if command == "list":
+        if not parts:
             return self._cmd_list()
+        command = parts[0].lower()
         if command == "run":
             pattern = parts[1] if len(parts) > 1 else ""
             return await self._run(pattern, emit)
-        return "usage: test list | test run [PATTERN]"
+        return "usage: test | test run [PATTERN]"
 
     def _cmd_list(self):
         if self._unittest() is None:
@@ -374,7 +374,7 @@ class AutoTest(object):
 def register(shell, runner=None, **kwargs):
     """Register the ``test`` command on a framework TelnetService."""
     runner = runner if runner is not None else AutoTest(**kwargs)
-    help_text = ("device test suites: list | run [PATTERN]  (%s)"
+    help_text = ("device test suites: bare lists, run [PATTERN]  (%s)"
                  % runner.directory)
     try:
         # Declared streaming: the runner pushes each outcome as it

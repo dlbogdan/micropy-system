@@ -316,7 +316,7 @@ class RunnerTests(unittest.TestCase):
 
     def test_shell_dispatch_and_list(self):
         runner = self._runner()
-        text = asyncio.run(runner.handle("list"))
+        text = asyncio.run(runner.handle(""))  # bare = list the suites
         self.assertIn("test_alpha", text)
         self.assertIn("6 cases", text)  # discovery counts through the classes
         text = asyncio.run(runner.handle("bogus"))
