@@ -230,6 +230,31 @@ class StreamingHandlerTests(unittest.TestCase):
         self.assertTrue(wants(holder.streaming))
         self.assertFalse(wants(object()))          # no code object
 
+    def test_wants_emit_micropython_bound_shape(self):
+        # Regression pin (verified on-device): MicroPython bound methods
+        # expose __func__/__self__ but do NOT proxy __code__ -- the old
+        # direct-__code__ probe returned None and the runner silently
+        # buffered, reproducing the multi-minute silent shell.
+        module = load_telnet_service()
+        wants = module.TelnetService._wants_emit
+
+        def streaming(_self, _args="", _emit=None):
+            return ""
+
+        def buffered(_self, _args=""):
+            return ""
+
+        class MpBound:  # mp shape: only __func__ + __self__, no __code__
+            pass
+
+        holder = MpBound()
+        stream = MpBound()
+        stream.__func__, stream.__self__ = streaming, holder
+        plain = MpBound()
+        plain.__func__, plain.__self__ = buffered, holder
+        self.assertTrue(wants(stream))
+        self.assertFalse(wants(plain))
+
     def test_streaming_handler_lines_arrive_before_end(self):
         module = load_telnet_service()
         service = module.TelnetService()

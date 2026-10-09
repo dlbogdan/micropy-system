@@ -306,16 +306,24 @@ class TelnetService:
     def _wants_emit(handler):
         """True when the handler takes (args, emit): arity >= 2.
 
-        Uses the function's code object (MicroPython and CPython both
-        expose __code__.co_argcount; bound methods proxy it and carry
-        __self__, whose implicit arg is discounted). Callables without a
-        code object (rare callables/partials) keep the buffered path.
+        Resolves the underlying function via __func__ FIRST: MicroPython
+        bound methods explicitly expose __func__/__self__ but do NOT
+        reliably proxy __code__ (verified on-device: the old direct
+        __code__ probe saw None and silently fell back to buffered
+        replies -- minutes of silence that looked like a hang). CPython
+        bound methods carry __func__ too; plain functions have none and
+        are used directly. The implicit self of a bound method is
+        discounted. Callables without a code object keep buffered.
         """
-        code = getattr(handler, "__code__", None)
+        func = getattr(handler, "__func__", handler)
+        code = getattr(func, "__code__", None)
         if code is None:
             return False
-        offset = 1 if getattr(handler, "__self__", None) is not None else 0
-        return code.co_argcount - offset >= 2
+        offset = 1 if func is not handler else 0
+        try:
+            return (code.co_argcount - offset) >= 2
+        except AttributeError:
+            return False
 
     @staticmethod
     def _make_emit(writer):
