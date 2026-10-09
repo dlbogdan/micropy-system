@@ -374,7 +374,16 @@ class AutoTest(object):
 def register(shell, runner=None, **kwargs):
     """Register the ``test`` command on a framework TelnetService."""
     runner = runner if runner is not None else AutoTest(**kwargs)
-    shell.add("test", runner.handle,
-              "device test suites: list | run [PATTERN]  (%s)"
-              % runner.directory)
+    help_text = ("device test suites: list | run [PATTERN]  (%s)"
+                 % runner.directory)
+    try:
+        # Declared streaming: the runner pushes each outcome as it
+        # happens (the arity probe is impossible on MicroPython bound
+        # methods -- verified on-device). An older service without the
+        # streaming kwarg raises TypeError BEFORE any registration side
+        # effect, so fall back to the classic buffered registration:
+        # a new runner still works against an old /lib/coresys.
+        shell.add("test", runner.handle, help_text, streaming=True)
+    except TypeError:
+        shell.add("test", runner.handle, help_text)
     return runner

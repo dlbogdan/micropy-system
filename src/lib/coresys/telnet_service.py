@@ -73,9 +73,18 @@ class TelnetService:
         self._busy = False
 
     # ------------------------------------------------------------- registration
-    def add(self, command, handler, description=""):
-        """Register an app command: handler(args) -> text (may span lines)."""
-        self._commands[str(command).lower()] = (handler, description)
+    def add(self, command, handler, description="", streaming=False):
+        """Register an app command: handler(args) -> text (may span lines).
+
+        streaming=True declares handler(args, emit): the dispatcher passes
+        an async per-line emit callback so the handler can push progress
+        as it works (long commands -- e.g. the autotest runner -- must
+        not go silent for minutes). The declaration is EXPLICIT because
+        MicroPython bound methods expose neither __code__ nor __func__
+        nor __self__ (verified on-device): arity cannot be probed there.
+        """
+        self._commands[str(command).lower()] = (handler, description,
+                                                bool(streaming))
 
     # ------------------------------------------------------------------ builtins
     def _status(self, _args):
@@ -142,7 +151,7 @@ class TelnetService:
             rows.insert(-1,
                         "repl      persistent Python eval loop (exit closes the link)")
         for name in sorted(self._commands):
-            _handler, desc = self._commands[name]
+            _handler, desc = self._commands[name][:2]
             rows.append("%-10s %s" % (name, desc or "app command"))
         return "\n".join(rows)
 
@@ -260,18 +269,25 @@ class TelnetService:
         builtins = {"status": self._status, "log": self._log,
                     "heap": self._heap, "help": self._help}
         handler = builtins.get(name)
+        streaming = False
         if handler is None and name in self._commands:
-            handler = self._commands[name][0]
+            entry = self._commands[name]
+            handler = entry[0]
+            streaming = entry[2] if len(entry) > 2 else False
         if handler is None:
             out = "unknown command: %s (try 'help')" % name
         else:
-            # Streaming handlers (arity >= 2: args + emit) push result lines
-            # as they are produced -- e.g. the autotest runner streams each
-            # test outcome, so a multi-minute run never looks hung. The
-            # arity probe is safe: an argument-binding TypeError happens
-            # BEFORE the handler body runs, so no side-effect double-run;
-            # 1-arg handlers (all app commands) keep the buffered path.
-            emit = self._make_emit(writer) if self._wants_emit(handler) else None
+            # Streaming handlers (declared streaming=True at add()) take
+            # (args, emit) and push result lines as they are produced --
+            # e.g. the autotest runner streams each test outcome, so a
+            # multi-minute run never looks hung. The declaration is
+            # explicit because MicroPython bound methods expose neither
+            # __code__ nor __func__ nor __self__ (verified on-device):
+            # arity cannot be probed there. _wants_emit remains as a
+            # CPython-side fallback for handlers registered without the
+            # flag; 1-arg handlers (all app commands) keep buffered.
+            emit = (self._make_emit(writer)
+                    if (streaming or self._wants_emit(handler)) else None)
             try:
                 out = handler(arg, emit) if emit is not None else handler(arg)
             except Exception as e:
@@ -304,16 +320,15 @@ class TelnetService:
 
     @staticmethod
     def _wants_emit(handler):
-        """True when the handler takes (args, emit): arity >= 2.
+        """CPython-side fallback: True when the handler takes (args, emit).
 
-        Resolves the underlying function via __func__ FIRST: MicroPython
-        bound methods explicitly expose __func__/__self__ but do NOT
-        reliably proxy __code__ (verified on-device: the old direct
-        __code__ probe saw None and silently fell back to buffered
-        replies -- minutes of silence that looked like a hang). CPython
-        bound methods carry __func__ too; plain functions have none and
-        are used directly. The implicit self of a bound method is
-        discounted. Callables without a code object keep buffered.
+        The authoritative signal is the explicit streaming=True flag on
+        add(): MicroPython bound methods expose neither __code__ nor
+        __func__ nor __self__ (verified on-device), so arity probing
+        silently fails there. On the host this still auto-detects:
+        resolve the underlying function via __func__ (CPython bound
+        methods carry it; the implicit self is discounted) and read
+        co_argcount. Callables without a code object return False.
         """
         func = getattr(handler, "__func__", handler)
         code = getattr(func, "__code__", None)

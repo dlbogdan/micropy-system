@@ -230,11 +230,11 @@ class StreamingHandlerTests(unittest.TestCase):
         self.assertTrue(wants(holder.streaming))
         self.assertFalse(wants(object()))          # no code object
 
-    def test_wants_emit_micropython_bound_shape(self):
-        # Regression pin (verified on-device): MicroPython bound methods
-        # expose __func__/__self__ but do NOT proxy __code__ -- the old
-        # direct-__code__ probe returned None and the runner silently
-        # buffered, reproducing the multi-minute silent shell.
+    def test_wants_emit_bound_shape_via_dunder_func(self):
+        # The probe resolves CPython-style bound methods through __func__
+        # (and discounts self). NB: the REAL MicroPython bound shape has
+        # no __code__/__func__/__self__ at all -- verified on-device --
+        # which the opaque-flag test below covers.
         module = load_telnet_service()
         wants = module.TelnetService._wants_emit
 
@@ -291,6 +291,35 @@ class StreamingHandlerTests(unittest.TestCase):
 
         output = writer.output.decode()
         self.assertIn("buffered-reply\n%s\n" % module.END_MARKER, output)
+
+    def test_streaming_flag_streams_without_introspectable_handler(self):
+        # Device reality pin (verified on the Pico 2 W): MicroPython bound
+        # methods expose NO __code__, __func__ or __self__ -- the arity
+        # probe cannot work there. The explicit streaming=True flag on
+        # add() is what activates the emit path.
+        module = load_telnet_service()
+        service = module.TelnetService()
+
+        class MpOpaque:  # callable, zero introspection attributes
+            def __call__(self, _args="", emit=None):
+                return self._run(_args, emit)
+
+            async def _run(self, _args, emit):
+                await emit("mp-step 1")
+                await emit("mp-step 2")
+                return None
+
+        handler = MpOpaque()
+        self.assertIsNone(getattr(handler, "__code__", None))
+        service.add("mpwalk", handler, "opaque streaming", streaming=True)
+        reader = _Reader([b"mpwalk\n"])
+        writer = _Writer()
+
+        asyncio.run(service._handle(reader, writer))
+
+        output = writer.output.decode()
+        self.assertIn("mp-step 1\nmp-step 2\n", output)
+        self.assertTrue(output.endswith("%s\n" % module.END_MARKER))
 
 
 if __name__ == "__main__":

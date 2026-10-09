@@ -322,15 +322,35 @@ class RunnerTests(unittest.TestCase):
         text = asyncio.run(runner.handle("bogus"))
         self.assertIn("usage:", text)
 
-    def test_register_adds_the_test_command(self):
-        class FakeShell:
+    def test_register_declares_streaming_on_new_service(self):
+        class NewShell:
+            def __init__(self):
+                self.commands = {}
+
+            def add(self, name, handler, description="", streaming=False):
+                self.commands[name] = (handler, description, streaming)
+
+        shell = NewShell()
+        runner = self.module.AutoTest(directory=str(self.dir), heap_floor=0)
+        returned = self.module.register(shell, runner)
+        self.assertIs(returned, runner)
+        self.assertIn("test", shell.commands)
+        self.assertEqual(shell.commands["test"][0], runner.handle)
+        # The streaming declaration is the device-side contract: MicroPython
+        # bound methods expose no arity info, so register() MUST ask for it.
+        self.assertTrue(shell.commands["test"][2])
+
+    def test_register_falls_back_on_old_service(self):
+        # An older /lib/coresys service has no streaming kwarg: register()
+        # must still land the command (buffered), not crash the app boot.
+        class OldShell:
             def __init__(self):
                 self.commands = {}
 
             def add(self, name, handler, description=""):
                 self.commands[name] = (handler, description)
 
-        shell = FakeShell()
+        shell = OldShell()
         runner = self.module.AutoTest(directory=str(self.dir), heap_floor=0)
         returned = self.module.register(shell, runner)
         self.assertIs(returned, runner)
