@@ -37,13 +37,18 @@ This project provides a complete system management solution for MicroPython-enab
 ## Project Structure
 
 - **boot.py**: Handles system initialization and firmware update checks on boot
-- **main.py**: Main application loop and system component initialization
+- **main.py** (from `src/slot_main.py`): stable A/B launcher — power-on
+  self-test, candidate confirm/rollback, boot-context recording
 - **lib/coresys/**: Core system modules
   - **manager_firmware.py**: OTA firmware update functionality
   - **manager_system.py**: System coordination and monitoring
   - **manager_wifi.py**: WiFi connection management
   - **manager_config.py**: Configuration management
   - **manager_tasks.py**: Background task scheduling
+  - **telnet_service.py**: the device shell (single-client line server, :23)
+  - **autotest.py**: on-device unittest-style test runner (`test` command)
+  - **slot_manager.py / ota_state.py / post.py**: A/B slot machinery, OTA
+    state, and the boot harness
   - **logger.py**: Logging utilities
 
 ## Configuration
@@ -92,10 +97,12 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
 `AUTOTEST.TEST_TIMEOUT_S` / `AUTOTEST.HEAP_FLOOR` bound the on-device test
 runner (per-test `wait_for` timeout and the minimum free heap to start a
 test); explicit runner kwargs override them, and both are seeded from these
-defaults on first use. The `test run` command streams each outcome as it
-happens (no silent multi-minute window); the host client's own timeouts are
-env knobs: `OTC_CMD_TIMEOUT` (banner/first chunk), `OTC_CMD_IDLE_TIMEOUT`
-(between streamed lines), `OTC_READ_TIMEOUT` (interactive).
+defaults on first use. The shell command follows the resource grammar:
+bare `test` lists the discovered suites, `test run [PATTERN]` runs them and
+streams each outcome as it happens (no silent multi-minute window); the host
+client's own timeouts are env knobs: `OTC_CMD_TIMEOUT` (banner/first chunk),
+`OTC_CMD_IDLE_TIMEOUT` (between streamed lines), `OTC_READ_TIMEOUT`
+(interactive).
 
 ## Quick Start: new project tutorial
 
