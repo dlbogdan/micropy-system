@@ -60,6 +60,10 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
     "SSID": "your-wifi-ssid",
     "PASS": "your-wifi-password"
   },
+  "AUTOTEST": {
+    "TEST_TIMEOUT_S": 60,
+    "HEAP_FLOOR": 40000
+  },
     "FIRMWARE": {
     "GITHUB_REPO": "username/repo",
     "GITHUB_TOKEN": "",
@@ -84,6 +88,14 @@ The system is configured through a JSON file (`/system-config.json`) with the fo
   }
 }
 ```
+
+`AUTOTEST.TEST_TIMEOUT_S` / `AUTOTEST.HEAP_FLOOR` bound the on-device test
+runner (per-test `wait_for` timeout and the minimum free heap to start a
+test); explicit runner kwargs override them, and both are seeded from these
+defaults on first use. The `test run` command streams each outcome as it
+happens (no silent multi-minute window); the host client's own timeouts are
+env knobs: `OTC_CMD_TIMEOUT` (banner/first chunk), `OTC_CMD_IDLE_TIMEOUT`
+(between streamed lines), `OTC_READ_TIMEOUT` (interactive).
 
 ## Quick Start: new project tutorial
 
@@ -476,7 +488,7 @@ Tools are grouped by function, mirroring the directory layout (`tools/tooling.py
 | `capture_boot.py` | Capture serial output across a board reset (DTR/RTS toggle) to inspect the reset cause / crash |
 | `device.py` | USB CLI: `state`, `log`, `monitor`, `files`, `selftest` (app hook), `probe` (app hook), `exec`, `reset` |
 | `discover.py` | LAN scanner for the device shell port (default 23); `--host` works cross-subnet when routed |
-| `telnet.py` | Device-shell client: one-shot `HOST [PORT] CMD ...` or interactive `HOST [PORT]`; default port 23 |
+| `telnet.py` | Device-shell client: one-shot `HOST [PORT] CMD ...` or interactive `HOST [PORT]`; default port 23. Streams replies live; activity-based timeouts (`OTC_CMD_TIMEOUT` banner/first chunk, `OTC_CMD_IDLE_TIMEOUT` between chunks, `OTC_READ_TIMEOUT` interactive) |
 | `autotest.py` | Device test suites: `push` unittest-style suites from `<app>/autotests/` + the framework runner/shim to the board (USB), `run [PATTERN]` remotely over the shell, `sync` = both; exits non-zero on failure |
 | `net.py` | Shell client for the device shell: `status`, `log`, `selftest`, `reboot`, `console`, `discover` |
 | `render_config.py` | Resolve `system-config.json`: Wi-Fi overrides + OTA source from `update-source.json` |

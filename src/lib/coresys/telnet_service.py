@@ -265,8 +265,15 @@ class TelnetService:
         if handler is None:
             out = "unknown command: %s (try 'help')" % name
         else:
+            # Streaming handlers (arity >= 2: args + emit) push result lines
+            # as they are produced -- e.g. the autotest runner streams each
+            # test outcome, so a multi-minute run never looks hung. The
+            # arity probe is safe: an argument-binding TypeError happens
+            # BEFORE the handler body runs, so no side-effect double-run;
+            # 1-arg handlers (all app commands) keep the buffered path.
+            emit = self._make_emit(writer) if self._wants_emit(handler) else None
             try:
-                out = handler(arg)
+                out = handler(arg, emit) if emit is not None else handler(arg)
             except Exception as e:
                 out = "error: %s" % e
                 logger.error("Telnet command '%s' failed: %s" % (name, e),
@@ -288,8 +295,40 @@ class TelnetService:
                              log_to_file=True)
         if out is None:
             out = ""
-        writer.write((str(out) + "\n" + END_MARKER + "\n").encode())
+        payload = str(out)
+        # A streaming handler returns nothing: its lines already went out
+        # through emit, so only END closes (no stray blank line).
+        writer.write((((payload + "\n") if payload else "")
+                      + END_MARKER + "\n").encode())
         await writer.drain()
+
+    @staticmethod
+    def _wants_emit(handler):
+        """True when the handler takes (args, emit): arity >= 2.
+
+        Uses the function's code object (MicroPython and CPython both
+        expose __code__.co_argcount; bound methods proxy it and carry
+        __self__, whose implicit arg is discounted). Callables without a
+        code object (rare callables/partials) keep the buffered path.
+        """
+        code = getattr(handler, "__code__", None)
+        if code is None:
+            return False
+        offset = 1 if getattr(handler, "__self__", None) is not None else 0
+        return code.co_argcount - offset >= 2
+
+    @staticmethod
+    def _make_emit(writer):
+        """Async per-line callback: writes one line and flushes at once.
+
+        The handler awaits emit per progress line; the client sees each
+        line the moment it is produced instead of one bulk reply at the
+        end. The final END marker is still written by _dispatch.
+        """
+        async def emit(text):
+            writer.write((str(text) + "\n").encode())
+            await writer.drain()
+        return emit
 
     # ----------------------------------------------------------------------- repl
     async def _repl(self, reader, writer):

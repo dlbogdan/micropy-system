@@ -128,28 +128,55 @@ def resolve_directory(preferred=None):
     return "/autotests"
 
 
+def _cfg_limits():
+    """(heap_floor, test_timeout_s) from /system-config.json AUTOTEST.
+
+    The board-side suite limits are operator-configurable like the rest
+    of the framework config (provisioned system-config.json; ConfigManager
+    seeds + persists the default on first read). Lazy import and full
+    containment: a missing file/section or a host test without the
+    lib.coresys stack keeps the built-in defaults.
+    """
+    try:
+        from lib.coresys.manager_config import ConfigManager
+        cm = ConfigManager("/system-config.json")
+        return (int(cm.get("AUTOTEST", "HEAP_FLOOR", 40000)),
+                float(cm.get("AUTOTEST", "TEST_TIMEOUT_S", 60)))
+    except Exception:
+        return 40000, 60.0
+
+
 class AutoTest(object):
     """Discover + run ``test_*.py`` suites from a device directory."""
 
-    def __init__(self, directory=None, heap_floor=40000,
-                 test_timeout_s=60, max_tb_lines=6, log=None, warn=None):
+    def __init__(self, directory=None, heap_floor=None,
+                 test_timeout_s=None, max_tb_lines=6, log=None, warn=None):
+        # Explicit kwargs win; otherwise the system-config.json AUTOTEST
+        # section; otherwise the built-in defaults (40000 B / 60 s).
+        default_floor, default_timeout = _cfg_limits()
         self.directory = resolve_directory(directory)
-        self.heap_floor = int(heap_floor)
-        self.test_timeout_s = float(test_timeout_s)
+        self.heap_floor = int(default_floor if heap_floor is None
+                              else heap_floor)
+        self.test_timeout_s = float(default_timeout if test_timeout_s is None
+                                    else test_timeout_s)
         self.max_tb_lines = int(max_tb_lines)
         self._log = log            # INFO -> console only
         self._warn = warn if warn is not None else log  # WARN/ERROR -> flash
         self._running = False
 
     # ------------------------------------------------------------------ shell
-    async def handle(self, args=""):
+    async def handle(self, args="", emit=None):
+        # ``emit`` (when the shell service provides one) is an async
+        # per-line callback: the run streams each outcome as it happens
+        # instead of one bulk reply minutes later. Without it (older
+        # service on the board) the run buffers exactly as before.
         parts = args.split()
         command = parts[0].lower() if parts else "run"
         if command == "list":
             return self._cmd_list()
         if command == "run":
             pattern = parts[1] if len(parts) > 1 else ""
-            return await self._run(pattern)
+            return await self._run(pattern, emit)
         return "usage: test list | test run [PATTERN]"
 
     def _cmd_list(self):
@@ -218,7 +245,7 @@ class AutoTest(object):
         return tests
 
     # -------------------------------------------------------------------- run
-    async def _run(self, pattern):
+    async def _run(self, pattern, emit=None):
         if self._running:
             return "error: a test run is already in progress"
         if self._unittest() is None:
@@ -234,7 +261,14 @@ class AutoTest(object):
         started = _now_ms()
         passed = failed = skipped = 0
         heap_low = _mem_free()
-        lines = []
+        lines = [] if emit is None else None
+
+        async def out(line):
+            if lines is not None:
+                lines.append(line)
+            else:
+                await emit(line)
+
         try:
             for name in names:
                 module_name = name[:-3]
@@ -242,14 +276,14 @@ class AutoTest(object):
                     module = self._import_module(module_name)
                 except Exception as exc:
                     failed += 1
-                    lines.append("ERROR %s: import failed" % module_name)
-                    lines.extend("  " + ln for ln in
-                                 _format_exc(exc, self.max_tb_lines))
+                    await out("ERROR %s: import failed" % module_name)
+                    for tb_line in _format_exc(exc, self.max_tb_lines):
+                        await out("  " + tb_line)
                     continue
                 tests = self._collect(module, pattern)
                 if not tests:
                     continue
-                lines.append("-- %s (%d)" % (module_name, len(tests)))
+                await out("-- %s (%d)" % (module_name, len(tests)))
                 for case_id, cls, meth_name in tests:
                     outcome, detail, duration = await self._run_one(
                         cls, meth_name)
@@ -264,11 +298,12 @@ class AutoTest(object):
                         heap_low = free
                     suffix = "" if outcome == "PASS" else (
                         ("  " + detail.split("\n")[0]) if detail else "")
-                    lines.append("%-5s %s (%d ms)%s"
-                                 % (outcome, case_id, duration, suffix))
+                    await out("%-5s %s (%d ms)%s"
+                              % (outcome, case_id, duration, suffix))
                     if outcome in ("FAIL", "ERROR") and detail \
                             and "\n" in detail:
-                        lines.extend("  " + ln for ln in detail.split("\n"))
+                        for tb_line in detail.split("\n"):
+                            await out("  " + tb_line)
         finally:
             self._running = False
             gc.collect()
@@ -276,12 +311,12 @@ class AutoTest(object):
         summary = ("RESULT: %d passed, %d failed, %d skipped "
                    "(%.1fs, heap_low %d B)"
                    % (passed, failed, skipped, total_s, heap_low))
-        lines.append(summary)
+        await out(summary)
         if failed:
             self._warn_log("AutoTest: %s" % summary)
         else:
             self._info_log("AutoTest: %s" % summary)
-        return "\n".join(lines)
+        return "" if lines is None else "\n".join(lines)
 
     async def _run_one(self, cls, meth_name):
         """Execute one test on a fresh instance; (outcome, detail, ms)."""

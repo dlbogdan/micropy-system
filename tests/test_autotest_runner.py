@@ -338,5 +338,110 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(shell.commands["test"][0], runner.handle)
 
 
+class StreamingRunTests(unittest.TestCase):
+    """emit= streams each outcome as produced (the anti-hang contract);
+    without it the run buffers exactly like the older service did."""
+
+    def setUp(self):
+        self.module = load_autotest()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.dir = Path(self.tmp.name)
+        (self.dir / "test_alpha.py").write_text(SUITE_OK)
+        self.addCleanup(self.tmp.cleanup)
+        self.addCleanup(lambda: [sys.modules.pop(n, None) for n in SUITES])
+
+    def test_emit_streams_lines_and_buffers_nothing(self):
+        runner = self.module.AutoTest(directory=str(self.dir), heap_floor=0,
+                                      test_timeout_s=0.05)
+        streamed = []
+
+        async def emit(line):
+            streamed.append(line)
+
+        returned = asyncio.run(runner._run("test_sync_pass", emit))
+        self.assertEqual(returned, "")          # nothing left to bulk-write
+        self.assertIn("-- test_alpha (1)", streamed)
+        self.assertTrue(any(ln.startswith("PASS") for ln in streamed))
+        self.assertTrue(streamed[-1].startswith("RESULT:"))
+
+    def test_handler_arity_advertises_streaming(self):
+        # telnet_service probes arity to decide whether to pass emit:
+        # handle(self, args, emit) must expose >= 2 non-self params.
+        runner = self.module.AutoTest(directory=str(self.dir), heap_floor=0)
+        code = getattr(runner.handle, "__code__", None)
+        self.assertIsNotNone(code)
+        offset = 1 if getattr(runner.handle, "__self__", None) is not None else 0
+        self.assertGreaterEqual(code.co_argcount - offset, 2)
+
+
+class ConfigLimitsTests(unittest.TestCase):
+    """heap_floor / test_timeout_s resolve: explicit kwarg > system-config
+    AUTOTEST section > built-in default (40000 / 60)."""
+
+    def setUp(self):
+        self.module = load_autotest()
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _stub_config(self, values):
+        fake_manager = types.ModuleType("lib.coresys.manager_config")
+
+        class FakeCM:
+            def __init__(self, filename):
+                assert filename == "/system-config.json"
+
+            def get(self, section, key, default=None):
+                assert section == "AUTOTEST"
+                return values[key]
+
+        fake_manager.ConfigManager = FakeCM
+        fake_lib = types.ModuleType("lib")
+        fake_coresys = types.ModuleType("lib.coresys")
+        fake_lib.coresys = fake_coresys
+        fake_coresys.manager_config = fake_manager
+        return {"lib": fake_lib, "lib.coresys": fake_coresys,
+                "lib.coresys.manager_config": fake_manager}
+
+    def test_limits_come_from_system_config(self):
+        stub = self._stub_config({"HEAP_FLOOR": 55555, "TEST_TIMEOUT_S": 90})
+        saved = {n: sys.modules.get(n) for n in stub}
+        sys.modules.update(stub)
+        try:
+            runner = self.module.AutoTest(directory=str(self.tmp.name))
+            self.assertEqual(runner.heap_floor, 55555)
+            self.assertEqual(runner.test_timeout_s, 90.0)
+        finally:
+            for name, previous in saved.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+    def test_explicit_kwargs_beat_config(self):
+        stub = self._stub_config({"HEAP_FLOOR": 55555, "TEST_TIMEOUT_S": 90})
+        saved = {n: sys.modules.get(n) for n in stub}
+        sys.modules.update(stub)
+        try:
+            runner = self.module.AutoTest(directory=str(self.tmp.name),
+                                          heap_floor=7, test_timeout_s=3)
+            self.assertEqual((runner.heap_floor, runner.test_timeout_s),
+                             (7, 3.0))
+        finally:
+            for name, previous in saved.items():
+                if previous is None:
+                    sys.modules.pop(name, None)
+                else:
+                    sys.modules[name] = previous
+
+    def test_missing_config_falls_back_to_builtins(self):
+        # No lib.coresys stub installed: the lazy import fails and the
+        # built-in defaults stand (host tests and unprovisioned boards).
+        for name in ("lib", "lib.coresys", "lib.coresys.manager_config"):
+            sys.modules.pop(name, None)
+        runner = self.module.AutoTest(directory=str(self.tmp.name))
+        self.assertEqual(runner.heap_floor, 40000)
+        self.assertEqual(runner.test_timeout_s, 60.0)
+
+
 if __name__ == "__main__":
     unittest.main()

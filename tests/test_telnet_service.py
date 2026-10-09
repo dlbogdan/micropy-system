@@ -201,5 +201,72 @@ class TelnetServiceTests(unittest.TestCase):
         self.assertIn("status    one-line JSON", output)
 
 
+class StreamingHandlerTests(unittest.TestCase):
+    """Handlers that take (args, emit) stream progress lines; 1-arg
+    handlers keep the buffered reply. The arity probe must never
+    double-invoke a handler (binding errors precede side effects)."""
+
+    def test_wants_emit_arity_probe(self):
+        module = load_telnet_service()
+        wants = module.TelnetService._wants_emit
+
+        def one_arg(_args=""):
+            return ""
+
+        def two_args(_args="", _emit=None):
+            return ""
+
+        class Holder:
+            def buffered(self, _args=""):
+                return ""
+
+            def streaming(self, _args="", _emit=None):
+                return ""
+
+        holder = Holder()
+        self.assertFalse(wants(one_arg))
+        self.assertTrue(wants(two_args))
+        self.assertFalse(wants(holder.buffered))   # self discounted
+        self.assertTrue(wants(holder.streaming))
+        self.assertFalse(wants(object()))          # no code object
+
+    def test_streaming_handler_lines_arrive_before_end(self):
+        module = load_telnet_service()
+        service = module.TelnetService()
+
+        async def streaming_handler(_arg="", emit=None):
+            await emit("step 1")
+            await emit("step 2")
+            return None  # streamed everything: nothing left to bulk-write
+
+        service.add("walk", streaming_handler, "streams progress")
+        reader = _Reader([b"walk\n"])
+        writer = _Writer()
+
+        asyncio.run(service._handle(reader, writer))
+
+        output = writer.output.decode()
+        self.assertIn("step 1\nstep 2\n", output)
+        self.assertTrue(output.endswith("%s\n" % module.END_MARKER))
+        # No stray blank line between the streamed lines and END.
+        self.assertNotIn("step 2\n\n%s" % module.END_MARKER, output)
+
+    def test_one_arg_handler_keeps_buffered_reply(self):
+        module = load_telnet_service()
+        service = module.TelnetService()
+
+        def buffered(_arg=""):
+            return "buffered-reply"
+
+        service.add("old", buffered, "classic handler")
+        reader = _Reader([b"old\n"])
+        writer = _Writer()
+
+        asyncio.run(service._handle(reader, writer))
+
+        output = writer.output.decode()
+        self.assertIn("buffered-reply\n%s\n" % module.END_MARKER, output)
+
+
 if __name__ == "__main__":
     unittest.main()

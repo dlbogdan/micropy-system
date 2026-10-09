@@ -155,10 +155,13 @@ def do_push(app_root):
 def do_run(app_root, target, pattern, shell_port, ip_file):
     """Drive the shell's 'test run' over the network (no USB).
 
-    A full suite can run for minutes inside the app's loop, so the shell
-    read window (telnet.py's OTC_CMD_TIMEOUT) is raised accordingly, and a
-    board that is still booting (e.g. right after a USB push reset) gets a
-    bounded retry before the run is declared unreachable.
+    A full suite can run for minutes inside the app's loop, so the shell's
+    idle window (telnet.py's OTC_CMD_IDLE_TIMEOUT) is raised accordingly,
+    and a board that is still booting (e.g. right after a USB push reset)
+    gets a bounded retry before the run is declared unreachable. Output is
+    streamed live (each device-side progress line as it arrives) while it
+    is also collected for the RESULT verdict -- no silent multi-minute
+    window that looks like a hang.
     """
     ip_address = resolve_device_ip(app_root, target, ip_file)
     telnet = framework_root() / "tools" / "target" / "telnet.py"
@@ -182,11 +185,20 @@ def do_run(app_root, target, pattern, shell_port, ip_file):
         time.sleep(5)
 
     env = os.environ.copy()
-    env.setdefault("OTC_CMD_TIMEOUT", "900")
-    result = subprocess.run(command, capture_output=True, text=True,
-                            timeout=1000, env=env)
-    output = (result.stdout + result.stderr).strip()
-    print(output)
+    env.setdefault("OTC_CMD_IDLE_TIMEOUT", "900")
+    proc = subprocess.Popen(command, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, env=env)
+    lines = []
+    for line in proc.stdout:
+        sys.stdout.write(line)
+        sys.stdout.flush()
+        lines.append(line)
+    try:
+        proc.wait(timeout=60)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        print("==> telnet client did not exit after the stream ended")
+    output = "".join(lines).strip()
     for line in output.splitlines():
         if line.startswith(RESULT_PREFIX):
             if " 0 failed" in line:
