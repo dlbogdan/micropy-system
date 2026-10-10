@@ -555,6 +555,11 @@ The following items are intentionally outside the immediate reliability roadmap:
 - certificate pinning;
 - credential rotation and provisioning redesign;
 - authenticated manual web uploads;
+- `repl_enabled` kill-switch: a `system-config.json` bool checked by
+  `TelnetService` before spawning the raw REPL (filed by the
+  opentherm-heater-controller review 2026-10-10, "Bug 5": the shell is the
+  trusted-LAN boundary, but an owner-facing switch to drop the highest-risk
+  verb is reasonable; host pin: `repl_enabled=false` refuses `repl`);
 - updating the MicroPython runtime/UF2 itself;
 - custom RP2040 flash partitions or native second-stage bootloaders.
 
